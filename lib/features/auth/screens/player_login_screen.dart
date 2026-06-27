@@ -4,7 +4,9 @@
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../../core/constants/app_colors.dart';
+import '../services/auth_service.dart';
 
 class PlayerLoginScreen extends StatefulWidget {
   const PlayerLoginScreen({super.key});
@@ -19,6 +21,11 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
   late AnimationController _pulseController;
   late AnimationController _particleController;
   late Animation<double> _pulseAnimation;
+
+  final AuthService _authService = AuthService();
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  bool _isLoading = false;
+  String? _error;
 
   @override
   void initState() {
@@ -44,6 +51,53 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
     _pulseController.dispose();
     _particleController.dispose();
     super.dispose();
+  }
+
+  // ── GOOGLE LOGIN HANDLER ─────────────────────────────────
+  Future<void> _handleGoogleLogin() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+      if (account == null) {
+        // User cancelled
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+      await account.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken == null) {
+        setState(() {
+          _error = 'Google login failed. Please try again.';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final data = await _authService.googleLogin(idToken);
+
+      if (!mounted) return;
+
+      // TODO: Navigate to dashboard after login
+      // final role = data['user']?['role'] ?? 'student';
+      // Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+
+      debugPrint('Login success: ${data['message']}');
+
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _isLoading = false;
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -120,7 +174,8 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.neonPurple.withOpacity(0.6)),
+                border: Border.all(
+                    color: AppColors.neonPurple.withOpacity(0.6)),
                 borderRadius: BorderRadius.circular(20),
                 color: AppColors.neonPurple.withOpacity(0.1),
               ),
@@ -146,8 +201,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
     );
   }
 
-  // ── HERO PURPLE CARD ────────────────────────────────────
-  // CHANGE 1: Subtitle hata diya
+  // ── HERO CARD ────────────────────────────────────────────
   Widget _buildHeroCard() {
     return Container(
       width: double.infinity,
@@ -170,9 +224,9 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
               color: const Color(0xFFFFC107),
               borderRadius: BorderRadius.circular(20),
@@ -187,10 +241,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
               ),
             ),
           ),
-
           const SizedBox(height: 20),
-
-          // Headline
           const Text(
             'UNLEASH\nYOUR\nGENIUS.',
             style: TextStyle(
@@ -201,11 +252,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
               letterSpacing: -1,
             ),
           ),
-
-          // ❌ Subtitle hata diya yahan se
-
           const SizedBox(height: 24),
-
           _buildAvatarsRow(),
         ],
       ),
@@ -244,8 +291,8 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
                       border: Border.all(
                           color: const Color(0xFFAB20FD), width: 2),
                     ),
-                    child: Icon(avatarIcons[i],
-                        color: Colors.white, size: 20),
+                    child:
+                    Icon(avatarIcons[i], color: Colors.white, size: 20),
                   ),
                 ),
               Positioned(
@@ -295,7 +342,8 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
       decoration: BoxDecoration(
         color: AppColors.bgCard,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.neonPurple.withOpacity(0.2)),
+        border:
+        Border.all(color: AppColors.neonPurple.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.4),
@@ -306,7 +354,6 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
       ),
       child: Column(
         children: [
-          // Pulsing icon
           AnimatedBuilder(
             animation: _pulseAnimation,
             builder: (context, child) => Transform.scale(
@@ -350,9 +397,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
               ],
             ),
           ),
-
           const SizedBox(height: 22),
-
           const Text(
             'Ready to Play?',
             style: TextStyle(
@@ -362,9 +407,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
               letterSpacing: -0.5,
             ),
           ),
-
           const SizedBox(height: 8),
-
           Text(
             'One click to start your quest for glory.',
             textAlign: TextAlign.center,
@@ -374,14 +417,32 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
               height: 1.4,
             ),
           ),
-
           const SizedBox(height: 32),
 
-          // CHANGE 2: Google button with proper icon
+          // Error message
+          if (_error != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withOpacity(0.4)),
+              ),
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: Colors.redAccent, fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           _buildGoogleButton(),
 
           const SizedBox(height: 20),
-
           Text(
             'By logging in, you agree to our Terms and Privacy Policy.',
             textAlign: TextAlign.center,
@@ -397,12 +458,9 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
   }
 
   // ── GOOGLE BUTTON ────────────────────────────────────────
-  // CHANGE 2: Proper Google icon + centered layout
   Widget _buildGoogleButton() {
     return GestureDetector(
-      onTap: () {
-        // TODO: AuthService.signInWithGoogle(context);
-      },
+      onTap: _isLoading ? null : _handleGoogleLogin,
       child: Container(
         width: double.infinity,
         height: 54,
@@ -421,10 +479,20 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
             ),
           ],
         ),
-        child: Row(
+        child: _isLoading
+            ? Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.neonPurple,
+            ),
+          ),
+        )
+            : Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // CHANGE 3: Proper Google G — colored arcs on white bg
             Container(
               width: 26,
               height: 26,
@@ -482,9 +550,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
   }
 }
 
-// ============================================================
-// Google "G" Painter — proper 4-color G logo
-// ============================================================
+// ── Google G Painter ─────────────────────────────────────
 class _GoogleGPainter extends CustomPainter {
   const _GoogleGPainter();
 
@@ -495,13 +561,11 @@ class _GoogleGPainter extends CustomPainter {
     final r  = size.width * 0.5;
     final sw = size.width * 0.3;
 
-    // ── 4 colored arcs ──
     final segments = [
-      // [startDeg, sweepDeg, color]
-      [-90.0, 80.0,  const Color(0xFF4285F4)], // Blue  — top
-      [ -10.0, 95.0, const Color(0xFF34A853)], // Green — right
-      [  85.0, 95.0, const Color(0xFFFBBC05)], // Yellow— bottom
-      [ 180.0, 90.0, const Color(0xFFEA4335)], // Red   — left
+      [-90.0, 80.0,  const Color(0xFF4285F4)],
+      [ -10.0, 95.0, const Color(0xFF34A853)],
+      [  85.0, 95.0, const Color(0xFFFBBC05)],
+      [ 180.0, 90.0, const Color(0xFFEA4335)],
     ];
 
     for (final s in segments) {
@@ -511,31 +575,23 @@ class _GoogleGPainter extends CustomPainter {
         (s[1] as double) * math.pi / 180,
         false,
         Paint()
-          ..color  = s[2] as Color
-          ..style  = PaintingStyle.stroke
+          ..color = s[2] as Color
+          ..style = PaintingStyle.stroke
           ..strokeWidth = sw
-          ..strokeCap   = StrokeCap.butt,
+          ..strokeCap = StrokeCap.butt,
       );
     }
 
-    // ── White center hole ──
-    canvas.drawCircle(
-      Offset(cx, cy),
-      r - sw - 0.5,
-      Paint()..color = Colors.white,
-    );
+    canvas.drawCircle(Offset(cx, cy), r - sw - 0.5,
+        Paint()..color = Colors.white);
 
-    // ── Horizontal bar of "G" (blue) ──
     final barTop    = cy - size.height * 0.12;
     final barBottom = cy + size.height * 0.12;
     final barLeft   = cx - size.width * 0.04;
     final barRight  = size.width;
-    canvas.drawRect(
-      Rect.fromLTRB(barLeft, barTop, barRight, barBottom),
-      Paint()..color = const Color(0xFF4285F4),
-    );
+    canvas.drawRect(Rect.fromLTRB(barLeft, barTop, barRight, barBottom),
+        Paint()..color = const Color(0xFF4285F4));
 
-    // ── White gap at top of blue arc (to open the G) ──
     canvas.drawRect(
       Rect.fromLTWH(cx - sw, 0, size.width, cy - size.height * 0.12),
       Paint()..color = Colors.white,
@@ -546,9 +602,7 @@ class _GoogleGPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
-// ============================================================
-// Background: Particles + Grid
-// ============================================================
+// ── Background Particles + Grid ──────────────────────────
 class _CyberParticles extends StatelessWidget {
   final AnimationController controller;
   const _CyberParticles({required this.controller});
@@ -583,7 +637,8 @@ class _ParticlePainter extends CustomPainter {
         Offset(x, y),
         rad,
         Paint()
-          ..color = (rng.nextBool() ? AppColors.neonCyan : AppColors.neonPurple)
+          ..color =
+          (rng.nextBool() ? AppColors.neonCyan : AppColors.neonPurple)
               .withOpacity(op),
       );
     }
