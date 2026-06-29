@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../services/auth_service.dart';
 
@@ -63,7 +64,6 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
     try {
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
       if (account == null) {
-        // User cancelled
         setState(() => _isLoading = false);
         return;
       }
@@ -74,26 +74,40 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
 
       if (idToken == null) {
         setState(() {
-          _error = 'Google login failed. Please try again.';
+          _error = 'Google token nahi mila. Dobara try karo.';
           _isLoading = false;
         });
         return;
       }
 
+      // Backend ko token bhejo
       final data = await _authService.googleLogin(idToken);
+
+      // User info save karo
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_token', data['token'] ?? '');
+      await prefs.setString('username', data['user']?['name'] ?? '');
+      await prefs.setString('role', data['user']?['role'] ?? 'student');
+      await prefs.setString('userId', data['user']?['_id'] ?? '');
 
       if (!mounted) return;
 
-      // TODO: Navigate to dashboard after login
-      // final role = data['user']?['role'] ?? 'student';
-      // Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
-
-      debugPrint('Login success: ${data['message']}');
+      // Role ke hisab se navigate karo
+      final role = data['user']?['role'] ?? 'student';
+      if (role == 'admin' || role == 'superadmin') {
+        // TODO: Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
+        debugPrint('Admin login success');
+      } else {
+        // TODO: Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+        debugPrint('Student login success');
+      }
 
     } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
-        _isLoading = false;
+        _error = msg.contains('kiet.edu')
+            ? '⚠️ Only @kiet.edu emails allowed!'
+            : msg;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
