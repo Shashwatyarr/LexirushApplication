@@ -8,7 +8,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../services/auth_service.dart';
-
+import '../../dashboard/students/student_dashboard.dart';
+import '../../dashboard/admins/admin_dashboard.dart';
 class PlayerLoginScreen extends StatefulWidget {
   const PlayerLoginScreen({super.key});
 
@@ -24,7 +25,10 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
   late Animation<double> _pulseAnimation;
 
   final AuthService _authService = AuthService();
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  // Web Client ID from Google Cloud Console (same as backend GOOGLE_CLIENT_ID)
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: '301462111281-ermh2l8nrth4jm7t96nm17mpfvfp1m4u.apps.googleusercontent.com',
+  );
   bool _isLoading = false;
   String? _error;
 
@@ -95,10 +99,16 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
       // Role ke hisab se navigate karo
       final role = data['user']?['role'] ?? 'student';
       if (role == 'admin' || role == 'superadmin') {
-        // TODO: Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const AdminDashboard()),
+        );
         debugPrint('Admin login success');
       } else {
-        // TODO: Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const StudentDashboard()),
+        );
         debugPrint('Student login success');
       }
 

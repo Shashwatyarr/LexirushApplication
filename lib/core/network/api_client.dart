@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   // TODO: Replace with your actual backend base URL (e.g. from flutter_dotenv or config)
-  static const String baseUrl = 'http://localhost:5000/api'; // Or 'https://tambola-67o6.onrender.com/api'
+  static const String baseUrl = 'https://tambola-67o6.onrender.com/api';
   
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
