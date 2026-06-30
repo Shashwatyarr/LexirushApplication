@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
+import 'spell_game_screen.dart';
 
 // Local accent for Spell Shooter (kept out of AppColors — screen-specific,
 // same pattern lobby_screen.dart uses for its own gold host badge).
@@ -184,22 +185,42 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     // ── gameStarted — navigate to game ──
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellGame,
-      //   arguments: {'roomCode': widget.roomCode, 'data': data});
-      debugPrint('Spell game started: $data');
+      final d = Map<String, dynamic>.from(data as Map);
+      final fullQuestionData = d['fullQuestionData'] is List
+          ? List<Map<String, dynamic>>.from(
+              (d['fullQuestionData'] as List)
+                  .map((e) => Map<String, dynamic>.from(e as Map)))
+          : null;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SpellGameScreen(
+            roomCode: widget.roomCode,
+            fullQuestionData: fullQuestionData,
+          ),
+        ),
+      );
     });
 
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellGame,
-      //   arguments: {
-      //     'roomCode': widget.roomCode,
-      //     'reconnectData': data,
-      //     'gridBase': data['gridBase'],
-      //     'fullQuestionData': data['fullQuestionData'],
-      //   });
-      debugPrint('Spell reconnect: $data');
+      final d = Map<String, dynamic>.from(data as Map);
+      final fullQuestionData = d['fullQuestionData'] is List
+          ? List<Map<String, dynamic>>.from(
+              (d['fullQuestionData'] as List)
+                  .map((e) => Map<String, dynamic>.from(e as Map)))
+          : null;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SpellGameScreen(
+            roomCode: widget.roomCode,
+            fullQuestionData: fullQuestionData,
+            reconnectData: d,
+          ),
+        ),
+      );
     });
 
     // ── roomClosed ──

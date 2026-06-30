@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
-import '../../game/lexirush/game_screen.dart';
-import '../../game/spell_shooter/spell_game_screen.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   final String roomCode;
@@ -76,37 +74,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      // LeaderboardScreen is shared by both modes and doesn't carry a
-      // gameMode flag itself, so we tell rematches apart by payload
-      // shape: Spell Shooter always sends fullQuestionData here.
-      if (d.containsKey('fullQuestionData')) {
-        final fullQuestionData = d['fullQuestionData'] is List
-            ? List<Map<String, dynamic>>.from(
-                (d['fullQuestionData'] as List)
-                    .map((e) => Map<String, dynamic>.from(e as Map)))
-            : null;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SpellGameScreen(
-              roomCode: widget.roomCode,
-              fullQuestionData: fullQuestionData,
-            ),
-          ),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GameScreen(
-              roomCode: widget.roomCode,
-              isAdmin: widget.isAdmin,
-              initialState: d,
-            ),
-          ),
-        );
-      }
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.game,
+      //   arguments: {'roomCode': widget.roomCode, 'data': data});
+      debugPrint('Rematch started: $data');
     });
 
     _socket!.on('roomClosed', (_) {

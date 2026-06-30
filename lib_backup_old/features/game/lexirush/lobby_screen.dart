@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
-import 'game_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   final String roomCode;
@@ -175,17 +174,9 @@ class _LobbyScreenState extends State<LobbyScreen>
     // ── gameStarted — navigate to game ──
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomCode: widget.roomCode,
-            isAdmin: widget.isAdmin,
-            initialState: d,
-          ),
-        ),
-      );
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.game,
+      //   arguments: {'roomCode': widget.roomCode, 'data': data});
+      debugPrint('Game started: $data');
     });
 
     // ── gamePrepared — PDF ready ──
@@ -213,17 +204,8 @@ class _LobbyScreenState extends State<LobbyScreen>
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomCode: widget.roomCode,
-            isAdmin: widget.isAdmin,
-            initialState: d,
-          ),
-        ),
-      );
+      // TODO: Navigate to game screen with reconnect data
+      debugPrint('Reconnect: $data');
     });
 
     // ── pdfError ──

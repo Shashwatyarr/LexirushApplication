@@ -1,5 +1,5 @@
 // ============================================================
-// FILE: lib/features/game/lexirush/lobby_screen.dart
+// FILE: lib/features/game/spell_shooter/spell_lobby_screen.dart
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -9,23 +9,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
-import 'game_screen.dart';
 
-class LobbyScreen extends StatefulWidget {
+// Local accent for Spell Shooter (kept out of AppColors — screen-specific,
+// same pattern lobby_screen.dart uses for its own gold host badge).
+const Color _spellGold = Color(0xFFFFB020);
+
+class SpellLobbyScreen extends StatefulWidget {
   final String roomCode;
   final bool isAdmin;
 
-  const LobbyScreen({
+  const SpellLobbyScreen({
     super.key,
     required this.roomCode,
     required this.isAdmin,
   });
 
   @override
-  State<LobbyScreen> createState() => _LobbyScreenState();
+  State<SpellLobbyScreen> createState() => _SpellLobbyScreenState();
 }
 
-class _LobbyScreenState extends State<LobbyScreen>
+class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     with TickerProviderStateMixin {
 
   late AnimationController _particleController;
@@ -38,13 +41,16 @@ class _LobbyScreenState extends State<LobbyScreen>
   Map<String, dynamic>? _currentUser;
   bool _isLoading = true;
   bool _isCopied = false;
-  bool _isGeneratingPDF = false;
 
-  // Room settings (admin only)
+  // Mission designation (host only)
   String _selectedBranch   = 'CSE';
   String _selectedSection  = 'A';
   String _selectedSemester = '1';
   String _roomName         = 'CSE_SecA_1_';
+
+  // Spell Shooter defaults (fast paced)
+  int _level     = 1;
+  int _timeLimit = 7;
 
   final List<String> _branchOptions   = ['CSE','IT','CS','CSIT','CSE-AI','CSE-AIML','ECE','ELCE','EEE','ME','CSDS','CS-CYBER-SECURITY'];
   final List<String> _sectionOptions  = ['A','B','C','D','E'];
@@ -83,16 +89,15 @@ class _LobbyScreenState extends State<LobbyScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId   = prefs.getString('userId') ?? '';
-      final userName = prefs.getString('userName') ?? 'Player';
+      final userName = prefs.getString('userName') ?? 'Shooter';
       final avatar   = prefs.getString('avatar') ?? '';
       final role     = prefs.getString('role') ?? 'student';
 
-      // Try fetching fresh user data
       int userLevel = 1;
       try {
         final res = await ApiClient.get('/auth/$userId');
         if (res.statusCode == 200) {
-          // parse level if available
+          // parse level if your ApiClient response shape exposes it
         }
       } catch (_) {}
 
@@ -108,7 +113,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
       _connectSocket(userId, userName, avatar, userLevel);
     } catch (e) {
-      debugPrint('Lobby init error: $e');
+      debugPrint('Spell lobby init error: $e');
     }
   }
 
@@ -125,7 +130,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     _socket!.connect();
 
     _socket!.onConnect((_) {
-      debugPrint('✅ Socket connected');
+      debugPrint('✅ Spell socket connected');
       _socket!.emit('joinRoom', {
         'roomCode' : widget.roomCode.toUpperCase(),
         'userId'   : userId,
@@ -145,10 +150,10 @@ class _LobbyScreenState extends State<LobbyScreen>
         _isLoading = false;
       });
 
-      // Sync room name dropdowns
       final incomingName = d['roomName'] as String? ?? '';
-      if (incomingName.isNotEmpty &&
-          incomingName != widget.roomCode.toUpperCase()) {
+      final rawCode = widget.roomCode.toUpperCase();
+
+      if (incomingName.isNotEmpty && incomingName != rawCode) {
         _roomName = incomingName;
         final parts = incomingName.split('_');
         if (parts.length >= 3) {
@@ -167,32 +172,40 @@ class _LobbyScreenState extends State<LobbyScreen>
         }
       }
 
-      if (d['gameSettings'] != null) {
-        // level/timeLimit could be applied if needed
+      final gameSettings = d['gameSettings'] as Map?;
+      if (gameSettings != null) {
+        setState(() {
+          _level     = gameSettings['level'] ?? 1;
+          _timeLimit = gameSettings['timeLimitPerQuestion'] ?? 7;
+        });
       }
     });
 
     // ── gameStarted — navigate to game ──
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomCode: widget.roomCode,
-            isAdmin: widget.isAdmin,
-            initialState: d,
-          ),
-        ),
-      );
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellGame,
+      //   arguments: {'roomCode': widget.roomCode, 'data': data});
+      debugPrint('Spell game started: $data');
     });
 
-    // ── gamePrepared — PDF ready ──
-    _socket!.on('gamePrepared', (data) {
+    // ── reconnectGame ──
+    _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      setState(() => _isGeneratingPDF = false);
-      _showSnack('PDF prepared! Download from web client.', color: AppColors.neonGreen);
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellGame,
+      //   arguments: {
+      //     'roomCode': widget.roomCode,
+      //     'reconnectData': data,
+      //     'gridBase': data['gridBase'],
+      //     'fullQuestionData': data['fullQuestionData'],
+      //   });
+      debugPrint('Spell reconnect: $data');
+    });
+
+    // ── roomClosed ──
+    _socket!.on('roomClosed', (_) {
+      if (!mounted) return;
+      _showRoomClosedDialog();
     });
 
     // ── playerKicked ──
@@ -204,40 +217,16 @@ class _LobbyScreenState extends State<LobbyScreen>
       }
     });
 
-    // ── roomClosed ──
-    _socket!.on('roomClosed', (_) {
-      if (!mounted) return;
-      _showRoomClosedDialog();
-    });
-
-    // ── reconnectGame ──
-    _socket!.on('reconnectGame', (data) {
-      if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomCode: widget.roomCode,
-            isAdmin: widget.isAdmin,
-            initialState: d,
-          ),
-        ),
-      );
-    });
-
-    // ── pdfError ──
-    _socket!.on('pdfError', (msg) {
-      if (!mounted) return;
-      setState(() => _isGeneratingPDF = false);
-      _showSnack(msg.toString(), color: AppColors.neonRed);
-    });
-
     // ── error ──
     _socket!.on('error', (msg) {
       if (!mounted) return;
-      setState(() => _isGeneratingPDF = false);
-      _showSnack(msg.toString(), color: AppColors.neonRed);
+      final text = msg.toString();
+      if (text.toLowerCase().contains('not found') ||
+          text.toLowerCase().contains('expired')) {
+        _showRoomClosedDialog(message: text);
+      } else {
+        _showSnack(text, color: AppColors.neonRed);
+      }
     });
   }
 
@@ -247,8 +236,8 @@ class _LobbyScreenState extends State<LobbyScreen>
       'roomCode': widget.roomCode.toUpperCase(),
       'settings': {
         'roomName'            : _roomName,
-        'level'               : 1,
-        'timeLimitPerQuestion': 15,
+        'level'               : _level,
+        'timeLimitPerQuestion': _timeLimit,
       },
     });
   }
@@ -277,22 +266,14 @@ class _LobbyScreenState extends State<LobbyScreen>
     _handleUpdateSettings();
   }
 
-  void _handleGeneratePDF() {
-    setState(() => _isGeneratingPDF = true);
-    _handleUpdateSettings();
-    _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
-  }
-
-  void _handleStudentDownloadPDF() {
-    setState(() => _isGeneratingPDF = true);
-    _socket?.emit('requestPDFData', {'roomCode': widget.roomCode.toUpperCase()});
-  }
-
-  void _handleStartMatch() {
-    _socket?.emit('startGame', {
-      'roomCode': widget.roomCode.toUpperCase(),
-      'adminId' : _currentUser?['id'],
-      'roomName': _roomName,
+  void _handleStartGame() {
+    _socket?.emit('prepareGame', {'roomCode': widget.roomCode});
+    Future.delayed(const Duration(seconds: 1), () {
+      _socket?.emit('startGame', {
+        'roomCode': widget.roomCode.toUpperCase(),
+        'adminId' : _currentUser?['id'],
+        'roomName': _roomName,
+      });
     });
   }
 
@@ -303,7 +284,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     if (mounted) setState(() => _isCopied = false);
   }
 
-  void _handleExitRoom() {
+  void _handleLeave() {
     showDialog(
       context: context,
       builder: (_) => _ConfirmDialog(
@@ -322,8 +303,8 @@ class _LobbyScreenState extends State<LobbyScreen>
     showDialog(
       context: context,
       builder: (_) => _ConfirmDialog(
-        title: 'Kick Player?',
-        message: 'Remove this player from the arena?',
+        title: 'Kick Shooter?',
+        message: 'Are you sure you want to kick this shooter?',
         onConfirm: () {
           _socket?.emit('kickPlayer', {
             'roomCode'     : widget.roomCode.toUpperCase(),
@@ -373,7 +354,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     );
   }
 
-  void _showRoomClosedDialog() {
+  void _showRoomClosedDialog({String? message}) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -385,8 +366,8 @@ class _LobbyScreenState extends State<LobbyScreen>
         ),
         title: const Text('Arena Closed',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
-        content: const Text('This arena has been terminated by the Host.',
-            style: TextStyle(color: Colors.white70)),
+        content: Text(message ?? 'This arena has been terminated by the Host.',
+            style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () { Navigator.pop(context); Navigator.pop(context); },
@@ -403,9 +384,6 @@ class _LobbyScreenState extends State<LobbyScreen>
     return widget.isAdmin || (actualHostId == _currentUser?['id']);
   }
 
-  bool get _isPrepared => _roomData?['isPrepared'] == true;
-  bool get _isCustom   => (_roomData?['gameSettings']?['isCustom']) == true;
-
   List<dynamic> get _players => (_roomData?['players'] as List?) ?? [];
 
   // ============================================================
@@ -413,7 +391,7 @@ class _LobbyScreenState extends State<LobbyScreen>
   // ============================================================
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _currentUser == null) {
+    if (_isLoading || _currentUser == null || _roomData == null) {
       return _buildLoadingScreen();
     }
 
@@ -421,8 +399,8 @@ class _LobbyScreenState extends State<LobbyScreen>
       backgroundColor: AppColors.bgDeep,
       body: Stack(
         children: [
-          _CyberParticles(controller: _particleController),
-          const _CyberGrid(),
+          _SpellParticles(controller: _particleController),
+          const _SpellGrid(),
           SafeArea(
             child: Column(
               children: [
@@ -432,13 +410,15 @@ class _LobbyScreenState extends State<LobbyScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
                       children: [
+                        const SizedBox(height: 12),
+                        _buildMissionCodeHeader(),
                         const SizedBox(height: 20),
-                        _buildRoomHeader(),
-                        const SizedBox(height: 16),
-                        _buildSettingsBar(),
+                        _buildDesignationCard(),
                         const SizedBox(height: 20),
                         _buildPlayersSection(),
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 24),
+                        _buildBottomActions(),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
@@ -457,7 +437,7 @@ class _LobbyScreenState extends State<LobbyScreen>
       backgroundColor: AppColors.bgDeep,
       body: Stack(
         children: [
-          const _CyberGrid(),
+          const _SpellGrid(),
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -467,16 +447,16 @@ class _LobbyScreenState extends State<LobbyScreen>
                   height: 70,
                   child: CircularProgressIndicator(
                     strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.neonPurple),
+                    valueColor: const AlwaysStoppedAnimation<Color>(_spellGold),
                   ),
                 ),
                 const SizedBox(height: 24),
                 ShaderMask(
                   shaderCallback: (b) => const LinearGradient(
-                    colors: [AppColors.neonPurple, AppColors.neonCyan],
+                    colors: [_spellGold, AppColors.neonPink],
                   ).createShader(b),
                   child: const Text(
-                    'ENTERING ARENA...',
+                    'LOADING CARNIVAL...',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
@@ -487,7 +467,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Synchronizing secure data',
+                  'Synchronizing mission data',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.3),
                     fontSize: 11,
@@ -508,18 +488,17 @@ class _LobbyScreenState extends State<LobbyScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          // Logo
           Container(
             width: 32, height: 32,
             decoration: BoxDecoration(
-              color: AppColors.neonPurple,
+              color: _spellGold,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.rocket_launch_rounded,
-                color: Colors.white, size: 18),
+            child: const Icon(Icons.gps_fixed_rounded,
+                color: Colors.black, size: 18),
           ),
           const SizedBox(width: 8),
-          const Text('LEXIRUSH',
+          const Text('SPELL SHOOTER',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,
@@ -530,27 +509,26 @@ class _LobbyScreenState extends State<LobbyScreen>
 
           const Spacer(),
 
-          // LIVE badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.neonPurple.withOpacity(0.15),
+              color: _spellGold.withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.neonPurple.withOpacity(0.4)),
+              border: Border.all(color: _spellGold.withOpacity(0.4)),
             ),
             child: Row(
               children: [
                 Container(
                   width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    color: AppColors.neonPurple,
+                  decoration: const BoxDecoration(
+                    color: _spellGold,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 5),
-                const Text('LIVE ROOM',
+                Text('LIVE ARENA',
                   style: TextStyle(
-                    color: AppColors.neonPurple,
+                    color: _spellGold,
                     fontSize: 9,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.5,
@@ -562,9 +540,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
           const SizedBox(width: 10),
 
-          // Exit button
           GestureDetector(
-            onTap: _handleExitRoom,
+            onTap: _handleLeave,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -593,78 +570,89 @@ class _LobbyScreenState extends State<LobbyScreen>
     );
   }
 
-  // ── ROOM HEADER ─────────────────────────────────────────
-  Widget _buildRoomHeader() {
-    return Column(
-      children: [
-        // Room name
-        AnimatedBuilder(
-          animation: _pulseController,
-          builder: (_, child) => Opacity(
-            opacity: 0.8 + 0.2 * _pulseController.value,
-            child: child,
+  // ── MISSION CODE HEADER (replaces wooden board) ─────────
+  Widget _buildMissionCodeHeader() {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (_, child) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+        decoration: BoxDecoration(
+          color: AppColors.bgCard,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _spellGold.withOpacity(0.25 + 0.15 * _pulseController.value),
           ),
-          child: Text(
-            _roomName,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 20,
-              letterSpacing: 1,
+          boxShadow: [
+            BoxShadow(
+              color: _spellGold.withOpacity(0.10 + 0.08 * _pulseController.value),
+              blurRadius: 30,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: child,
+      ),
+      child: Column(
+        children: [
+          Text('MISSION CODE',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.4),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 4,
             ),
           ),
-        ),
-
-        const SizedBox(height: 14),
-
-        // Copy code button
-        GestureDetector(
-          onTap: _handleCopyCode,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              color: _isCopied
-                  ? AppColors.neonGreen.withOpacity(0.15)
-                  : Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _isCopied
-                    ? AppColors.neonGreen.withOpacity(0.5)
-                    : Colors.white.withOpacity(0.1),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: _handleCopyCode,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.roomCode,
+                    style: TextStyle(
+                      color: _spellGold,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 32,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Icon(
+                    _isCopied ? Icons.check_circle_rounded : Icons.copy_rounded,
+                    color: _isCopied ? AppColors.neonGreen : Colors.white54,
+                    size: 22,
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _isCopied ? Icons.check_circle_outline : Icons.copy_rounded,
-                  color: _isCopied ? AppColors.neonGreen : Colors.white,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _isCopied
-                      ? 'COPIED!'
-                      : 'COPY CODE: ${widget.roomCode}',
-                  style: TextStyle(
-                    color: _isCopied ? AppColors.neonGreen : Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ],
-            ),
           ),
-        ),
-      ],
+          if (_isCopied) ...[
+            const SizedBox(height: 8),
+            Text('Copied to clipboard!',
+              style: TextStyle(
+                color: AppColors.neonGreen,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  // ── SETTINGS BAR ────────────────────────────────────────
-  Widget _buildSettingsBar() {
+  // ── DESIGNATION CARD ─────────────────────────────────────
+  Widget _buildDesignationCard() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -675,21 +663,17 @@ class _LobbyScreenState extends State<LobbyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Arena designation label
-          Text('Arena Designation',
+          Text('Mission Designation',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.4),
+              color: _spellGold,
               fontSize: 10,
               fontWeight: FontWeight.w800,
               letterSpacing: 2,
             ),
           ),
           const SizedBox(height: 10),
-
-          // Dropdowns row
           Row(
             children: [
-              // Branch
               Expanded(
                 flex: 3,
                 child: _buildDropdown(
@@ -699,7 +683,6 @@ class _LobbyScreenState extends State<LobbyScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              // Section
               Expanded(
                 flex: 2,
                 child: _buildDropdown(
@@ -710,7 +693,6 @@ class _LobbyScreenState extends State<LobbyScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              // Semester
               Expanded(
                 flex: 2,
                 child: _buildDropdown(
@@ -722,18 +704,30 @@ class _LobbyScreenState extends State<LobbyScreen>
               ),
             ],
           ),
-
-          const SizedBox(height: 14),
-
-          // PDF + Start buttons
-          Row(
-            children: [
-              // PDF button
-              Expanded(child: _buildPDFButton()),
-              const SizedBox(width: 10),
-              // Start button
-              Expanded(flex: 2, child: _buildStartButton()),
-            ],
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: _spellGold.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _spellGold.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.badge_rounded, color: _spellGold, size: 16),
+                const SizedBox(width: 8),
+                Text(_roomName,
+                  style: TextStyle(
+                    color: _spellGold,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -754,7 +748,7 @@ class _LobbyScreenState extends State<LobbyScreen>
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: onChanged != null
-              ? AppColors.neonPurple.withOpacity(0.3)
+              ? _spellGold.withOpacity(0.3)
               : Colors.white.withOpacity(0.08),
         ),
       ),
@@ -785,251 +779,91 @@ class _LobbyScreenState extends State<LobbyScreen>
     );
   }
 
-  Widget _buildPDFButton() {
-    if (_isMeHost) {
-      return GestureDetector(
-        onTap: _isGeneratingPDF ? null : _handleGeneratePDF,
-        child: Container(
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.neonGreen.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.neonGreen.withOpacity(0.5)),
-          ),
-          child: Center(
-            child: _isGeneratingPDF
-                ? SizedBox(
-              width: 16, height: 16,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: AppColors.neonGreen),
-            )
-                : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.download_rounded,
-                    color: AppColors.neonGreen, size: 16),
-                const SizedBox(width: 4),
-                Text('PDF',
-                  style: TextStyle(
-                    color: AppColors.neonGreen,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    } else if (_isPrepared) {
-      return GestureDetector(
-        onTap: _isGeneratingPDF ? null : _handleStudentDownloadPDF,
-        child: Container(
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.neonPurple.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.neonPurple.withOpacity(0.5)),
-          ),
-          child: Center(
-            child: _isGeneratingPDF
-                ? SizedBox(
-              width: 16, height: 16,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: AppColors.neonPurple),
-            )
-                : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.download_rounded,
-                    color: AppColors.neonPurple, size: 16),
-                const SizedBox(width: 4),
-                Text('PDF',
-                  style: TextStyle(
-                    color: AppColors.neonPurple,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    } else {
-      return Container(
-        height: 44,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.03),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-        ),
-        child: Center(
-          child: Text('Waiting...',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.25),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-            ),
-          ),
-        ),
-      );
-    }
-  }
-
-  Widget _buildStartButton() {
-    final canStart = _isMeHost && (_isPrepared || _isCustom);
-
-    return GestureDetector(
-      onTap: canStart ? _handleStartMatch : null,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: canStart
-              ? const LinearGradient(
-            colors: [Color(0xFFD946EF), Color(0xFF7B2FE0)],
-          )
-              : null,
-          color: canStart ? null : AppColors.bgSurface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: canStart
-                ? Colors.transparent
-                : Colors.white.withOpacity(0.06),
-          ),
-          boxShadow: canStart
-              ? [BoxShadow(
-            color: const Color(0xFFD946EF).withOpacity(0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          )]
-              : [],
-        ),
-        child: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isMeHost ? Icons.play_arrow_rounded : Icons.hourglass_empty_rounded,
-                color: canStart ? Colors.white : Colors.white30,
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                _isMeHost
-                    ? (_isCustom
-                    ? 'Launch Custom'
-                    : (_isPrepared ? 'START MATCH' : 'Generate PDF First'))
-                    : 'Waiting for Host',
-                style: TextStyle(
-                  color: canStart ? Colors.white : Colors.white30,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   // ── PLAYERS SECTION ─────────────────────────────────────
   Widget _buildPlayersSection() {
     final players = _players;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Players Joined',
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.groups_rounded, color: _spellGold, size: 20),
+                  const SizedBox(width: 8),
+                  const Text('CONNECTED SHOOTERS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _spellGold.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _spellGold.withOpacity(0.3)),
+                ),
+                child: Text('${players.length} READY',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                    letterSpacing: 0.5,
+                    color: _spellGold,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text('Waiting for players...',
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          players.isEmpty
+              ? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(
+              children: [
+                Icon(Icons.hourglass_empty_rounded,
+                    color: Colors.white.withOpacity(0.2), size: 40),
+                const SizedBox(height: 10),
+                Text('Waiting for shooters to join...',
                   style: TextStyle(
-                    color: AppColors.neonPurple,
-                    fontSize: 10,
+                    color: Colors.white.withOpacity(0.3),
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1,
                   ),
                 ),
               ],
             ),
-            RichText(
-              text: TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${players.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 28,
-                    ),
-                  ),
-                  TextSpan(
-                    text: ' / 100',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 20,
-                    ),
-                  ),
-                ],
-              ),
+          )
+              : GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 0.78,
             ),
-          ],
-        ),
-
-        const SizedBox(height: 16),
-
-        // Player grid
-        players.isEmpty
-            ? _buildEmptySlots()
-            : GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.3,
+            itemCount: players.length,
+            itemBuilder: (context, index) => _buildPlayerCard(
+                Map<String, dynamic>.from(players[index] as Map)),
           ),
-          itemCount: players.length + 1, // +1 for open slot indicator
-          itemBuilder: (context, index) {
-            if (index < players.length) {
-              return _buildPlayerCard(
-                  Map<String, dynamic>.from(players[index] as Map));
-            }
-            return _buildOpenSlot();
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptySlots() {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.3,
-      children: List.generate(4, (_) => _buildOpenSlot()),
+        ],
+      ),
     );
   }
 
@@ -1042,156 +876,129 @@ class _LobbyScreenState extends State<LobbyScreen>
     final myId = _currentUser?['id'] ?? '';
     final canKick = _isMeHost && !isHost && player['userId'] != myId;
     final avatarUrl = player['avatar'] as String? ?? '';
-    final name = player['name'] as String? ?? 'Player';
+    final name = player['name'] as String? ?? 'Shooter';
     final level = player['level'] ?? 1;
 
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
           decoration: BoxDecoration(
-            gradient: isOffline
-                ? null
-                : LinearGradient(
-              colors: [
-                const Color(0xFF1a1530),
-                AppColors.bgCard,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            color: isOffline ? Colors.black87 : null,
-            borderRadius: BorderRadius.circular(16),
+            color: AppColors.bgSurface,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isOffline
                   ? AppColors.neonRed.withOpacity(0.3)
-                  : AppColors.neonPurple.withOpacity(0.3),
+                  : _spellGold.withOpacity(0.25),
             ),
           ),
-          padding: const EdgeInsets.all(14),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  // Avatar
                   Container(
-                    width: 42, height: 42,
+                    width: 46, height: 46,
                     decoration: BoxDecoration(
-                      color: AppColors.bgSurface,
-                      borderRadius: BorderRadius.circular(10),
+                      color: AppColors.bgCard,
+                      shape: BoxShape.circle,
                       border: Border.all(
                         color: isOffline
                             ? AppColors.neonRed
-                            : AppColors.neonPurple.withOpacity(0.5),
+                            : _spellGold.withOpacity(0.6),
                         width: 1.5,
                       ),
                     ),
-                    child: avatarUrl.isNotEmpty
-                        ? ClipRRect(
-                      borderRadius: BorderRadius.circular(9),
-                      child: Image.network(avatarUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Icon(
+                    child: ClipOval(
+                      child: avatarUrl.isNotEmpty
+                          ? Image.network(avatarUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
                             Icons.person_rounded,
-                            color: AppColors.neonPurple,
-                            size: 24,
-                          )),
-                    )
-                        : Icon(Icons.person_rounded,
-                        color: AppColors.neonPurple, size: 24),
+                            color: _spellGold, size: 22),
+                      )
+                          : Icon(Icons.person_rounded,
+                          color: _spellGold, size: 22),
+                    ),
                   ),
-
-                  // Level badge (not for host)
-                  if (!isHost)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isOffline
-                            ? AppColors.neonRed.withOpacity(0.1)
-                            : Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isOffline
-                              ? AppColors.neonRed.withOpacity(0.3)
-                              : Colors.white.withOpacity(0.1),
+                  if (isHost)
+                    Positioned(
+                      top: -4, right: -4,
+                      child: Container(
+                        width: 18, height: 18,
+                        decoration: const BoxDecoration(
+                          color: _spellGold,
+                          shape: BoxShape.circle,
                         ),
-                      ),
-                      child: Text('LVL $level',
-                        style: TextStyle(
-                          color: isOffline
-                              ? AppColors.neonRed
-                              : Colors.white70,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                        ),
+                        child: const Icon(Icons.star_rounded,
+                            color: Colors.black, size: 12),
                       ),
                     ),
                 ],
               ),
-
-              const Spacer(),
-
-              // Name
+              const SizedBox(height: 8),
               Text(name,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isOffline ? Colors.white30 : Colors.white,
                   fontWeight: FontWeight.w800,
-                  fontSize: 13,
+                  fontSize: 11,
                   decoration: isOffline ? TextDecoration.lineThrough : null,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-
-              const SizedBox(height: 3),
-
-              // Status
-              Row(
-                children: [
-                  Container(
-                    width: 6, height: 6,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isOffline
-                          ? AppColors.neonRed
-                          : (isHost ? const Color(0xFFFFC107) : AppColors.neonGreen),
-                    ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isOffline
+                      ? AppColors.neonRed.withOpacity(0.1)
+                      : isHost
+                      ? _spellGold.withOpacity(0.1)
+                      : AppColors.neonGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isOffline
+                        ? AppColors.neonRed.withOpacity(0.2)
+                        : isHost
+                        ? _spellGold.withOpacity(0.2)
+                        : AppColors.neonGreen.withOpacity(0.2),
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    isOffline ? 'OFFLINE' : (isHost ? 'HOST' : 'READY'),
-                    style: TextStyle(
-                      color: isOffline
-                          ? AppColors.neonRed
-                          : (isHost ? const Color(0xFFFFC107) : AppColors.neonGreen),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1,
-                    ),
+                ),
+                child: Text(
+                  isOffline ? 'OFFLINE' : (isHost ? 'HOST' : 'LVL $level'),
+                  style: TextStyle(
+                    color: isOffline
+                        ? AppColors.neonRed
+                        : isHost
+                        ? _spellGold
+                        : AppColors.neonGreen,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
                   ),
-                  if (isHost) const Text(' 👑', style: TextStyle(fontSize: 10)),
-                ],
+                ),
               ),
             ],
           ),
         ),
-
-        // Kick button
         if (canKick)
           Positioned(
-            bottom: 8, right: 8,
+            top: -6, right: -6,
             child: GestureDetector(
               onTap: () => _handleKickPlayer(player['userId'] as String),
               child: Container(
-                width: 28, height: 28,
+                width: 24, height: 24,
                 decoration: BoxDecoration(
-                  color: AppColors.neonRed.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.neonRed.withOpacity(0.4)),
+                  color: AppColors.neonRed.withOpacity(0.9),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.bgDeep, width: 2),
                 ),
-                child: Icon(Icons.person_remove_rounded,
-                    color: AppColors.neonRed, size: 14),
+                child: const Icon(Icons.close_rounded,
+                    color: Colors.white, size: 13),
               ),
             ),
           ),
@@ -1199,33 +1006,85 @@ class _LobbyScreenState extends State<LobbyScreen>
     );
   }
 
-  Widget _buildOpenSlot() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.bgCard.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.06),
-          style: BorderStyle.solid,
-          width: 1,
+  // ── BOTTOM ACTIONS ───────────────────────────────────────
+  Widget _buildBottomActions() {
+    final canStart = _isMeHost && _players.isNotEmpty;
+
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: _handleLeave,
+            child: Container(
+              height: 50,
+              decoration: BoxDecoration(
+                color: AppColors.neonRed.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.neonRed.withOpacity(0.4)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.logout_rounded, color: AppColors.neonRed, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Leave Arena',
+                    style: TextStyle(
+                      color: AppColors.neonRed,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.add_circle_outline_rounded,
-              color: Colors.white.withOpacity(0.15), size: 24),
-          const SizedBox(height: 6),
-          Text('Open Slot',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.15),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
+        if (_isMeHost) ...[
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: GestureDetector(
+              onTap: canStart ? _handleStartGame : null,
+              child: Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: canStart
+                      ? const LinearGradient(
+                    colors: [_spellGold, Color(0xFFFF7A00)],
+                  )
+                      : null,
+                  color: canStart ? null : AppColors.bgSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: canStart
+                      ? [BoxShadow(
+                    color: _spellGold.withOpacity(0.35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  )]
+                      : [],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.rocket_launch_rounded,
+                        color: canStart ? Colors.black : Colors.white30, size: 18),
+                    const SizedBox(width: 8),
+                    Text('LAUNCH MISSION',
+                      style: TextStyle(
+                        color: canStart ? Colors.black : Colors.white30,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -1250,7 +1109,7 @@ class _ConfirmDialog extends StatelessWidget {
       backgroundColor: AppColors.bgCard,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: AppColors.neonPurple.withOpacity(0.3)),
+        side: BorderSide(color: _spellGold.withOpacity(0.3)),
       ),
       title: Text(title,
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
@@ -1265,7 +1124,7 @@ class _ConfirmDialog extends StatelessWidget {
         TextButton(
           onPressed: onConfirm,
           child: Text('Confirm',
-              style: TextStyle(color: AppColors.neonPurple, fontWeight: FontWeight.w800)),
+              style: TextStyle(color: _spellGold, fontWeight: FontWeight.w800)),
         ),
       ],
     );
@@ -1273,31 +1132,31 @@ class _ConfirmDialog extends StatelessWidget {
 }
 
 // ============================================================
-// Background Widgets
+// Background Widgets (self-contained, mirrors lobby_screen.dart style)
 // ============================================================
-class _CyberParticles extends StatelessWidget {
+class _SpellParticles extends StatelessWidget {
   final AnimationController controller;
-  const _CyberParticles({required this.controller});
+  const _SpellParticles({required this.controller});
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (_, __) => CustomPaint(
-        painter: _ParticlePainter(controller.value),
+        painter: _SpellParticlePainter(controller.value),
         size: MediaQuery.of(context).size,
       ),
     );
   }
 }
 
-class _ParticlePainter extends CustomPainter {
+class _SpellParticlePainter extends CustomPainter {
   final double t;
-  _ParticlePainter(this.t);
+  _SpellParticlePainter(this.t);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rng = math.Random(99);
+    final rng = math.Random(42);
     for (int i = 0; i < 28; i++) {
       final x     = rng.nextDouble() * size.width;
       final baseY = rng.nextDouble() * size.height;
@@ -1308,31 +1167,31 @@ class _ParticlePainter extends CustomPainter {
       canvas.drawCircle(
         Offset(x, y), rad,
         Paint()
-          ..color = (rng.nextBool() ? AppColors.neonCyan : AppColors.neonPurple)
+          ..color = (rng.nextBool() ? _spellGold : AppColors.neonPink)
               .withOpacity(op),
       );
     }
   }
 
   @override
-  bool shouldRepaint(_ParticlePainter o) => o.t != t;
+  bool shouldRepaint(_SpellParticlePainter o) => o.t != t;
 }
 
-class _CyberGrid extends StatelessWidget {
-  const _CyberGrid();
+class _SpellGrid extends StatelessWidget {
+  const _SpellGrid();
 
   @override
   Widget build(BuildContext context) => CustomPaint(
-    painter: _GridPainter(),
+    painter: _SpellGridPainter(),
     size: MediaQuery.of(context).size,
   );
 }
 
-class _GridPainter extends CustomPainter {
+class _SpellGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = AppColors.neonPurple.withOpacity(0.035)
+      ..color = _spellGold.withOpacity(0.03)
       ..strokeWidth = 1;
     for (double x = 0; x < size.width; x += 38) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);

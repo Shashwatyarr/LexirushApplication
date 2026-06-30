@@ -9,7 +9,7 @@ class AuthService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return UserModel.fromJson(data['user']);
+      return UserModel.fromJson(data);
     } else {
       throw Exception(jsonDecode(response.body)['message'] ?? 'Failed to load user');
     }

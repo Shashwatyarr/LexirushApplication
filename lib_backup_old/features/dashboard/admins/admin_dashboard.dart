@@ -8,9 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
 import '../services/admin_service.dart';
-import '../../auth/screens/player_login_screen.dart';
-import '../../game/lexirush/lobby_screen.dart';
-import '../../analytics/screens/analytics_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -83,11 +80,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const PlayerLoginScreen()),
-      (route) => false,
-    );
+    // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override
@@ -164,10 +157,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             children: [
               GestureDetector(
                 onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
-                  );
+                  // TODO: Navigate to analytics
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -385,16 +375,7 @@ class _AdminDashboardState extends State<AdminDashboard>
     final players = (room['players'] as List?)?.length ?? 0;
     final status = room['status'] ?? 'waiting';
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => LobbyScreen(roomCode: code, isAdmin: true),
-          ),
-        );
-      },
-      child: Container(
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -450,7 +431,6 @@ class _AdminDashboardState extends State<AdminDashboard>
             ),
           ),
         ],
-      ),
       ),
     );
   }

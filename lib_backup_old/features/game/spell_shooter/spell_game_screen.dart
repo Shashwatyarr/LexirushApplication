@@ -19,10 +19,6 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
-import '../../leaderboard/screens/leaderboard_screen.dart';
-import '../../auth/screens/player_login_screen.dart';
-import '../../dashboard/students/student_dashboard.dart';
-import '../../dashboard/admins/admin_dashboard.dart';
 
 // Local accent — kept consistent with spell_lobby_screen.dart
 const Color _spellGold = Color(0xFFFFB020);
@@ -124,11 +120,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     }
 
     if (_userId.isEmpty) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const PlayerLoginScreen()),
-        (route) => false,
-      );
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
       return;
     }
 
@@ -265,27 +257,9 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
     _socket!.on('gameOver', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      final leaderboard = List<Map<String, dynamic>>.from(
-        (d['leaderboard'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map)),
-      );
-      final questionStats = List<Map<String, dynamic>>.from(
-        (d['questionStats'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map)),
-      );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LeaderboardScreen(
-            roomCode: widget.roomCode,
-            isAdmin: _isAdminOrSuper,
-            leaderboard: leaderboard,
-            roomAverage: (d['roomAverage'] as num?)?.toDouble() ?? 0,
-            questionStats: questionStats,
-          ),
-        ),
-      );
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellLeaderboard,
+      //   arguments: {'roomCode': widget.roomCode, 'data': data});
+      debugPrint('Spell game over: $data');
     });
   }
 
@@ -345,15 +319,8 @@ class _SpellGameScreenState extends State<SpellGameScreen>
         onConfirm: () {
           _socket?.emit('leaveRoom', {'roomCode': widget.roomCode});
           Navigator.pop(context); // close dialog
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => _isAdminOrSuper
-                  ? const AdminDashboard()
-                  : const StudentDashboard(),
-            ),
-            (route) => false,
-          );
+          // TODO: Navigator.pushReplacementNamed(context,
+          //   _isAdminOrSuper ? AppRoutes.adminDashboard : AppRoutes.studentDashboard);
         },
       ),
     );
@@ -382,11 +349,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
             onPressed: () {
               Navigator.pop(context);
               if (navigateAfter) {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StudentDashboard()),
-                  (route) => false,
-                );
+                // TODO: Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
               }
             },
             child: Text('OK', style: TextStyle(color: AppColors.neonPurple)),
