@@ -10,6 +10,8 @@ import '../../../core/constants/app_colors.dart';
 import '../services/auth_service.dart';
 import '../../dashboard/students/student_dashboard.dart';
 import '../../dashboard/admins/admin_dashboard.dart';
+import '../../../routes/app_routes.dart';
+
 class PlayerLoginScreen extends StatefulWidget {
   const PlayerLoginScreen({super.key});
 
@@ -99,16 +101,10 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
       // Role ke hisab se navigate karo
       final role = data['user']?['role'] ?? 'student';
       if (role == 'admin' || role == 'superadmin') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminDashboard()),
-        );
+        Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
         debugPrint('Admin login success');
       } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const StudentDashboard()),
-        );
+        Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
         debugPrint('Student login success');
       }
 
@@ -193,7 +189,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
           ),
           GestureDetector(
             onTap: () {
-              // TODO: Navigator.pushNamed(context, AppRoutes.adminLogin);
+              Navigator.pushNamed(context, AppRoutes.adminLogin);
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

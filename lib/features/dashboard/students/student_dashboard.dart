@@ -9,6 +9,7 @@ import '../../auth/services/auth_service.dart';
 import '../../auth/services/user_service.dart';
 import '../../game/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../routes/app_routes.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -75,8 +76,11 @@ class _StudentDashboardState extends State<StudentDashboard>
     try {
       final data = await _roomService.joinRoom(code);
       if (!mounted) return;
-      // TODO: Navigate to game lobby
-      // Navigator.pushNamed(context, AppRoutes.lobby, arguments: data);
+      Navigator.pushNamed(context, AppRoutes.lobby, arguments: {
+        'roomCode': code,
+        'isAdmin': false,
+        'roomData': data,
+      });
       debugPrint('Joined: $data');
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -88,7 +92,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override

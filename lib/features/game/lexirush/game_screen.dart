@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../routes/app_routes.dart';
 
 // ── Data model for a grid cell ───────────────────────────────
 class GridCell {
@@ -259,13 +260,16 @@ class _GameScreenState extends State<GameScreen>
       }
     });
 
-    // ── gameOver ──
-    _socket!.on('gameOver', (data) {
+    // ── gameEnded ──
+    _socket!.on('gameEnded', (data) {
       if (!mounted) return;
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.leaderboard,
-      //   arguments: {'roomCode': widget.roomCode, 'data': data});
-      debugPrint('Game over: $data');
-      Navigator.pop(context);
+      Navigator.pushReplacementNamed(context, AppRoutes.leaderboard, arguments: {
+        'roomCode': widget.roomCode,
+        'isAdmin': widget.isAdmin,
+        'leaderboard': data['leaderboard'],
+        'roomAverage': data['roomAverage'],
+        'questionStats': data['questionStats'],
+      });
     });
 
     // ── error ──

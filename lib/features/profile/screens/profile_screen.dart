@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../routes/app_routes.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -177,8 +178,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     _socket!.on('replayReady', (data) {
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.game,
-      //   arguments: {'roomCode': d['roomCode'], 'data': d['gameData']});
+      Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
+        'roomCode': d['roomCode'],
+        'data': d['gameData'],
+      });
       debugPrint('Replay ready: ${d['roomCode']}');
     });
   }

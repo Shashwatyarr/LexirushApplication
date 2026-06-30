@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
 import '../services/admin_service.dart';
+import '../../../routes/app_routes.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -80,7 +81,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override
@@ -157,7 +158,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             children: [
               GestureDetector(
                 onTap: () {
-                  // TODO: Navigate to analytics
+                  Navigator.pushNamed(context, AppRoutes.analytics);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(

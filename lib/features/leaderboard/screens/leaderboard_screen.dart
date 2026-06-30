@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../routes/app_routes.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   final String roomCode;
@@ -74,8 +75,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.game,
-      //   arguments: {'roomCode': widget.roomCode, 'data': data});
+      Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
+        'roomCode': widget.roomCode,
+        'data': data,
+      });
       debugPrint('Rematch started: $data');
     });
 

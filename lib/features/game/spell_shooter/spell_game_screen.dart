@@ -19,6 +19,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../routes/app_routes.dart';
 
 // Local accent — kept consistent with spell_lobby_screen.dart
 const Color _spellGold = Color(0xFFFFB020);
@@ -120,7 +121,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     }
 
     if (_userId.isEmpty) {
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
+      Navigator.pushReplacementNamed(context, AppRoutes.login);
       return;
     }
 
@@ -257,9 +258,13 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
     _socket!.on('gameOver', (data) {
       if (!mounted) return;
-      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.spellLeaderboard,
-      //   arguments: {'roomCode': widget.roomCode, 'data': data});
-      debugPrint('Spell game over: $data');
+      Navigator.pushReplacementNamed(context, AppRoutes.spellLeaderboard, arguments: {
+        'roomCode': widget.roomCode,
+        'isAdmin': _isAdminOrSuper,
+        'leaderboard': data['leaderboard'],
+        'roomAverage': data['roomAverage'],
+        'questionStats': data['questionStats'],
+      });
     });
   }
 
@@ -319,8 +324,8 @@ class _SpellGameScreenState extends State<SpellGameScreen>
         onConfirm: () {
           _socket?.emit('leaveRoom', {'roomCode': widget.roomCode});
           Navigator.pop(context); // close dialog
-          // TODO: Navigator.pushReplacementNamed(context,
-          //   _isAdminOrSuper ? AppRoutes.adminDashboard : AppRoutes.studentDashboard);
+          Navigator.pushReplacementNamed(context,
+            _isAdminOrSuper ? AppRoutes.adminDashboard : AppRoutes.studentDashboard);
         },
       ),
     );
@@ -349,7 +354,8 @@ class _SpellGameScreenState extends State<SpellGameScreen>
             onPressed: () {
               Navigator.pop(context);
               if (navigateAfter) {
-                // TODO: Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+                Navigator.pushReplacementNamed(context,
+                  _isAdminOrSuper ? AppRoutes.adminDashboard : AppRoutes.studentDashboard);
               }
             },
             child: Text('OK', style: TextStyle(color: AppColors.neonPurple)),
