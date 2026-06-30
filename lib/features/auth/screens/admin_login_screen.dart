@@ -13,8 +13,8 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../routes/app_routes.dart';
 import '../services/auth_service.dart';
-import '../../dashboard/admins/admin_dashboard.dart';
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
@@ -77,11 +77,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
 
       if (!mounted) return;
 
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const AdminDashboard()),
-        (route) => false,
-      );
+      Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
     } catch (e) {
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');

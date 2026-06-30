@@ -7,7 +7,7 @@ import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
-import '../../leaderboard/screens/leaderboard_screen.dart';
+import '../../../routes/app_routes.dart';
 
 // ── Data model for a grid cell ───────────────────────────────
 class GridCell {
@@ -260,8 +260,8 @@ class _GameScreenState extends State<GameScreen>
       }
     });
 
-    // ── gameOver ──
-    _socket!.on('gameOver', (data) {
+    // ── gameEnded ──
+    _socket!.on('gameEnded', (data) {
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
       final leaderboard = List<Map<String, dynamic>>.from(
@@ -272,18 +272,13 @@ class _GameScreenState extends State<GameScreen>
         (d['questionStats'] as List? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map)),
       );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LeaderboardScreen(
-            roomCode: widget.roomCode,
-            isAdmin: widget.isAdmin,
-            leaderboard: leaderboard,
-            roomAverage: (d['roomAverage'] as num?)?.toDouble() ?? 0,
-            questionStats: questionStats,
-          ),
-        ),
-      );
+      Navigator.pushReplacementNamed(context, AppRoutes.leaderboard, arguments: {
+        'roomCode': widget.roomCode,
+        'isAdmin': widget.isAdmin,
+        'leaderboard': leaderboard,
+        'roomAverage': (d['roomAverage'] as num?)?.toDouble() ?? 0,
+        'questionStats': questionStats,
+      });
     });
 
     // ── error ──

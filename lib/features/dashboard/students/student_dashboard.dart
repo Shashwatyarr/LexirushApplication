@@ -9,11 +9,11 @@ import '../../auth/services/auth_service.dart';
 import '../../auth/services/user_service.dart';
 import '../../game/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../auth/screens/player_login_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../game/lexirush/lobby_screen.dart';
 import '../../game/spell_shooter/spell_lobby_screen.dart';
 import '../../leaderboard/screens/global_ranking_screen.dart';
+import '../../../routes/app_routes.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -114,11 +114,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const PlayerLoginScreen()),
-      (route) => false,
-    );
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   Future<void> _openProfile() async {

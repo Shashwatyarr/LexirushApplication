@@ -10,6 +10,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
 import 'spell_game_screen.dart';
+import '../../../routes/app_routes.dart';
 
 // Local accent for Spell Shooter (kept out of AppColors — screen-specific,
 // same pattern lobby_screen.dart uses for its own gold host badge).
@@ -185,42 +186,23 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     // ── gameStarted — navigate to game ──
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      final fullQuestionData = d['fullQuestionData'] is List
-          ? List<Map<String, dynamic>>.from(
-              (d['fullQuestionData'] as List)
-                  .map((e) => Map<String, dynamic>.from(e as Map)))
-          : null;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SpellGameScreen(
-            roomCode: widget.roomCode,
-            fullQuestionData: fullQuestionData,
-          ),
-        ),
-      );
+      Navigator.pushReplacementNamed(context, AppRoutes.spellGame, arguments: {
+        'roomCode': widget.roomCode,
+        'fullQuestionData': data['fullQuestionData'],
+        'reconnectData': data,
+      });
+      debugPrint('Spell game started: $data');
     });
 
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      final fullQuestionData = d['fullQuestionData'] is List
-          ? List<Map<String, dynamic>>.from(
-              (d['fullQuestionData'] as List)
-                  .map((e) => Map<String, dynamic>.from(e as Map)))
-          : null;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SpellGameScreen(
-            roomCode: widget.roomCode,
-            fullQuestionData: fullQuestionData,
-            reconnectData: d,
-          ),
-        ),
-      );
+      Navigator.pushReplacementNamed(context, AppRoutes.spellGame, arguments: {
+        'roomCode': widget.roomCode,
+        'reconnectData': data,
+        'fullQuestionData': data['fullQuestionData'],
+      });
+      debugPrint('Spell reconnect: $data');
     });
 
     // ── roomClosed ──

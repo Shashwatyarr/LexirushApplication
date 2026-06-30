@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 import '../../game/lexirush/game_screen.dart';
+import '../../../routes/app_routes.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -178,20 +179,22 @@ class _ProfileScreenState extends State<ProfileScreen>
     _socket!.on('replayReady', (data) {
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
+
       final roomCode = (d['roomCode'] ?? '').toString();
       final gameData = d['gameData'] is Map
           ? Map<String, dynamic>.from(d['gameData'] as Map)
           : null;
-      Navigator.push(
+
+      Navigator.pushReplacementNamed(
         context,
-        MaterialPageRoute(
-          builder: (_) => GameScreen(
-            roomCode: roomCode,
-            isAdmin: _role == 'admin' || _role == 'superadmin',
-            initialState: gameData,
-          ),
-        ),
+        AppRoutes.game,
+        arguments: {
+          'roomCode': roomCode,
+          'data': gameData,
+        },
       );
+
+      debugPrint('Replay ready: $roomCode');
     });
   }
 

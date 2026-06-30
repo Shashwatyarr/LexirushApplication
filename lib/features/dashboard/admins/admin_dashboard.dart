@@ -8,9 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
 import '../services/admin_service.dart';
-import '../../auth/screens/player_login_screen.dart';
 import '../../game/lexirush/lobby_screen.dart';
-import '../../analytics/screens/analytics_screen.dart';
+import '../../../routes/app_routes.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -83,11 +82,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const PlayerLoginScreen()),
-      (route) => false,
-    );
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override
@@ -164,10 +159,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             children: [
               GestureDetector(
                 onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
-                  );
+                  Navigator.pushNamed(context, AppRoutes.analytics);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
