@@ -6,13 +6,9 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
+import '../../auth/services/user_service.dart';
 import '../../game/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../profile/screens/profile_screen.dart';
-import '../../game/lexirush/lobby_screen.dart';
-import '../../game/spell_shooter/spell_lobby_screen.dart';
-import '../../leaderboard/screens/global_ranking_screen.dart';
-import '../../../routes/app_routes.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -35,6 +31,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   bool _isJoining = false;
   String? _error;
   String _userName = '';
+  String _userAvatar = '';
 
   @override
   void initState() {
@@ -55,6 +52,7 @@ class _StudentDashboardState extends State<StudentDashboard>
       final prefs = await SharedPreferencesHelper.getAll();
       setState(() {
         _userName = prefs['username'] ?? 'Player';
+        _userAvatar = prefs['avatar'] ?? '';
       });
     } catch (_) {}
   }
@@ -77,30 +75,9 @@ class _StudentDashboardState extends State<StudentDashboard>
     try {
       final data = await _roomService.joinRoom(code);
       if (!mounted) return;
+      // TODO: Navigate to game lobby
+      // Navigator.pushNamed(context, AppRoutes.lobby, arguments: data);
       debugPrint('Joined: $data');
-
-      // Backend tells us which game mode this room is for
-      // (falls back to 'lexirush' if the field isn't present).
-      final roomData = data['room'];
-      final gameMode = (data['gameMode'] ??
-          (roomData is Map ? roomData['gameMode'] : null) ??
-          'lexirush').toString();
-
-      if (gameMode == 'spell_shooter') {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SpellLobbyScreen(roomCode: code, isAdmin: false),
-          ),
-        );
-      } else {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => LobbyScreen(roomCode: code, isAdmin: false),
-          ),
-        );
-      }
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -111,14 +88,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   Future<void> _handleLogout() async {
     await _authService.logout();
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, AppRoutes.login);
-  }
-
-  Future<void> _openProfile() async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ProfileScreen()),
-    );
+    // TODO: Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override
@@ -237,18 +207,15 @@ class _StudentDashboardState extends State<StudentDashboard>
       ),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: _openProfile,
-            child: Container(
-              width: 60, height: 60,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
-              ),
-              child: const Icon(Icons.person_rounded,
-                  color: Colors.white, size: 32),
+          Container(
+            width: 60, height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
             ),
+            child: const Icon(Icons.person_rounded,
+                color: Colors.white, size: 32),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -442,7 +409,6 @@ class _StudentDashboardState extends State<StudentDashboard>
               title: 'LexiRush',
               subtitle: 'Word battle arena',
               color: AppColors.neonPurple,
-              onTap: () => _showModeInfo('lexirush'),
             )),
             const SizedBox(width: 12),
             Expanded(child: _buildModeCard(
@@ -450,23 +416,10 @@ class _StudentDashboardState extends State<StudentDashboard>
               title: 'Spell\nShooter',
               subtitle: 'Shoot the answer',
               color: const Color(0xFF00BCD4),
-              onTap: () => _showModeInfo('spell_shooter'),
             )),
           ],
         ),
       ],
-    );
-  }
-
-  // NOTE: Players join a specific room via the room-code box above;
-  // they don't start a match from this card directly. Tapping a mode
-  // card currently opens that mode's global leaderboard as a quick
-  // preview. Swap this for whatever flow you actually want here
-  // (e.g. filtering "Join a Match" by mode, or showing rules).
-  void _showModeInfo(String mode) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const GlobalRankingScreen()),
     );
   }
 
@@ -475,11 +428,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     required String title,
     required String subtitle,
     required Color color,
-    required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
+    return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.bgCard,
@@ -514,7 +464,6 @@ class _StudentDashboardState extends State<StudentDashboard>
             ),
           ),
         ],
-      ),
       ),
     );
   }
