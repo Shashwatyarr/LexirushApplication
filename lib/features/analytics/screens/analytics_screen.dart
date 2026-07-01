@@ -1041,6 +1041,7 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width == 0 || size.height == 0) return;
     final rng = math.Random(55);
     for (int i = 0; i < 20; i++) {
       final x     = rng.nextDouble() * size.width;

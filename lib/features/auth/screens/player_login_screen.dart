@@ -3,6 +3,8 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,6 +32,7 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
   final AuthService _authService = AuthService();
   // Web Client ID from Google Cloud Console (same as backend GOOGLE_CLIENT_ID)
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: kIsWeb ? '301462111281-ermh2l8nrth4jm7t96nm17mpfvfp1m4u.apps.googleusercontent.com' : null,
     serverClientId: '301462111281-ermh2l8nrth4jm7t96nm17mpfvfp1m4u.apps.googleusercontent.com',
   );
   bool _isLoading = false;
@@ -109,7 +112,27 @@ class _PlayerLoginScreenState extends State<PlayerLoginScreen>
         debugPrint('Student login success');
       }
 
-    } catch (e) {
+    } on PlatformException catch (e, stackTrace) {
+      debugPrint('\n--- GOOGLE SIGN-IN PLATFORM EXCEPTION ---');
+      debugPrint('Code: ${e.code}');
+      debugPrint('Message: ${e.message}');
+      debugPrint('Details: ${e.details}');
+      debugPrint('ServerClientId: ${_googleSignIn.serverClientId}');
+      debugPrint('ClientId: ${_googleSignIn.clientId}');
+      debugPrint('Google Email: ${_googleSignIn.currentUser?.email ?? "Not available"}');
+      debugPrint('idToken available? ${_googleSignIn.currentUser != null ? "Check token logic" : "No user"}');
+      debugPrint('Expected Package Name: com.example.lexirush');
+      debugPrint('Stacktrace:\n$stackTrace');
+      debugPrint('-----------------------------------------\n');
+      setState(() {
+        _error = 'Google Sign-In failed (Code: ${e.code}). Please verify your SHA-1 in Google Cloud Console.';
+      });
+    } catch (e, stackTrace) {
+      debugPrint('\n--- GOOGLE SIGN-IN ERROR ---');
+      debugPrint('Error: $e');
+      debugPrint('Google Email: ${_googleSignIn.currentUser?.email ?? "Not available"}');
+      debugPrint('Stacktrace:\n$stackTrace');
+      debugPrint('----------------------------\n');
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
         _error = msg.contains('kiet.edu')
@@ -646,21 +669,31 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (!size.width.isFinite || !size.height.isFinite || size.width <= 0 || size.height <= 0) return;
     final rng = math.Random(99);
     for (int i = 0; i < 28; i++) {
       final x     = rng.nextDouble() * size.width;
       final baseY = rng.nextDouble() * size.height;
       final speed = 0.4 + rng.nextDouble() * 1.2;
-      final y     = (baseY - t * size.height * speed) % size.height;
+      
+      double y = (baseY - t * size.height * speed);
+      if (size.height > 0) {
+        y = y % size.height;
+      }
+      if (y.isNaN || y.isInfinite) y = 0.0;
+      final safeX = (x.isNaN || x.isInfinite) ? 0.0 : x;
+      
       final rad   = 1.0 + rng.nextDouble() * 2.2;
+      final safeRad = (rad.isNaN || rad.isInfinite || rad <= 0) ? 1.0 : rad;
       final op    = 0.08 + rng.nextDouble() * 0.22;
+      
       canvas.drawCircle(
-        Offset(x, y),
-        rad,
+        Offset(safeX, y),
+        safeRad,
         Paint()
           ..color =
           (rng.nextBool() ? AppColors.neonCyan : AppColors.neonPurple)
-              .withOpacity(op),
+              .withOpacity(op.clamp(0.0, 1.0)),
       );
     }
   }
