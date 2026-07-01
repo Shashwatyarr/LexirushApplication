@@ -1,5 +1,12 @@
 // ============================================================
 // FILE: lib/features/auth/screens/admin_login_screen.dart
+//
+// This screen didn't exist before — the "Admin Login" shield
+// button on PlayerLoginScreen had an empty onTap with a TODO.
+// AuthService.adminLogin() and the backend's /auth/login/admin
+// endpoint were already implemented and unused, so this just
+// wires a UI around them (same visual language as the rest of
+// the app, see student_dashboard.dart / player_login_screen.dart).
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -25,6 +32,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -46,10 +54,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
 
   Future<void> _handleAdminLogin() async {
     final username = _usernameController.text.trim();
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text;
 
     if (username.isEmpty || password.isEmpty) {
-      setState(() => _error = 'Please enter both username and password.');
+      setState(() => _error = 'Username aur password dono daalo!');
       return;
     }
 
@@ -71,8 +79,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
 
       Navigator.pushReplacementNamed(context, AppRoutes.adminDashboard);
     } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      setState(() => _error = msg);
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -89,15 +98,16 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
           SafeArea(
             child: Column(
               children: [
-                _buildTopBar(),
+                _buildTopBar(context),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(
                       children: [
                         const SizedBox(height: 40),
+                        _buildHeader(),
+                        const SizedBox(height: 28),
                         _buildLoginCard(),
-                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
@@ -110,27 +120,25 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
     );
   }
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
+                border: Border.all(color: Colors.white.withOpacity(0.15)),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white, size: 18),
+              child: const Icon(Icons.arrow_back_rounded,
+                  color: Colors.white, size: 20),
             ),
           ),
-          const Text(
-            'ADMIN ACCESS',
+          const SizedBox(width: 12),
+          const Text('ADMIN ACCESS',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,
@@ -138,68 +146,58 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
               letterSpacing: 1.5,
             ),
           ),
-          const SizedBox(width: 36), // Balance the back button
         ],
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      children: [
+        Container(
+          width: 64, height: 64,
+          decoration: BoxDecoration(
+            color: AppColors.neonPurple.withOpacity(0.15),
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.neonPurple.withOpacity(0.5)),
+          ),
+          child: Icon(Icons.shield_rounded, color: AppColors.neonPurple, size: 30),
+        ),
+        const SizedBox(height: 16),
+        const Text('Admin Login',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text('Training Division access only',
+          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13),
+        ),
+      ],
     );
   }
 
   Widget _buildLoginCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: AppColors.bgCard,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.neonRed.withOpacity(0.4)),
+        border: Border.all(color: AppColors.neonPurple.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.neonRed.withOpacity(0.15),
-            blurRadius: 30,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.bgSurface,
-              border: Border.all(
-                color: AppColors.neonRed.withOpacity(0.6),
-                width: 1.5,
-              ),
-            ),
-            child: Icon(
-              Icons.admin_panel_settings_rounded,
-              color: AppColors.neonRed,
-              size: 38,
-            ),
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'System Override',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 24,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Enter admin credentials to proceed.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.4),
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 32),
-
           if (_error != null) ...[
             Container(
               width: double.infinity,
@@ -209,42 +207,52 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.red.withOpacity(0.4)),
               ),
-              child: Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-              ),
+              child: Text(_error!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
             ),
             const SizedBox(height: 16),
           ],
 
+          _buildLabel('Username'),
+          const SizedBox(height: 8),
           _buildTextField(
             controller: _usernameController,
-            hint: 'Username',
-            icon: Icons.person_outline_rounded,
+            hint: 'admin username',
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
+
+          _buildLabel('Password'),
+          const SizedBox(height: 8),
           _buildTextField(
             controller: _passwordController,
-            hint: 'Password',
-            icon: Icons.lock_outline_rounded,
-            isPassword: true,
+            hint: '••••••••',
+            obscure: _obscurePassword,
+            suffix: GestureDetector(
+              onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+              child: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
+                color: Colors.white.withOpacity(0.4),
+                size: 20,
+              ),
+            ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
 
           GestureDetector(
             onTap: _isLoading ? null : _handleAdminLogin,
             child: Container(
               width: double.infinity,
-              height: 54,
+              height: 52,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFE53935), Color(0xFFC62828)],
+                gradient: LinearGradient(
+                  colors: [AppColors.neonPurple, const Color(0xFF7B2FE0)],
                 ),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.neonRed.withOpacity(0.4),
+                    color: AppColors.neonPurple.withOpacity(0.4),
                     blurRadius: 16,
                     offset: const Offset(0, 4),
                   ),
@@ -253,22 +261,18 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
               child: Center(
                 child: _isLoading
                     ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        'AUTHENTICATE',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
+                  width: 22, height: 22,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+                    : const Text('LOGIN AS ADMIN',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    letterSpacing: 1,
+                  ),
+                ),
               ),
             ),
           ),
@@ -277,38 +281,44 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
     );
   }
 
+  Widget _buildLabel(String text) => Text(text,
+    style: TextStyle(
+      color: Colors.white.withOpacity(0.6),
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.5,
+    ),
+  );
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String hint,
-    required IconData icon,
-    bool isPassword = false,
+    bool obscure = false,
+    Widget? suffix,
   }) {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.neonRed.withOpacity(0.3)),
+        border: Border.all(color: AppColors.neonPurple.withOpacity(0.3)),
       ),
       child: TextField(
         controller: controller,
-        obscureText: isPassword,
-        style: const TextStyle(color: Colors.white),
+        obscureText: obscure,
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(
-            color: Colors.white.withOpacity(0.3),
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(icon, color: AppColors.neonRed.withOpacity(0.7)),
+          hintStyle: TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 14),
           border: InputBorder.none,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          suffixIcon: suffix,
         ),
       ),
     );
   }
 }
 
+// ── Background (same pattern as the rest of the app) ────────
 class _CyberParticles extends StatelessWidget {
   final AnimationController controller;
   const _CyberParticles({required this.controller});
@@ -339,14 +349,9 @@ class _ParticlePainter extends CustomPainter {
       final y = (baseY - t * size.height * speed) % size.height;
       final rad = 1.0 + rng.nextDouble() * 2.2;
       final op = 0.08 + rng.nextDouble() * 0.22;
-      canvas.drawCircle(
-        Offset(x, y),
-        rad,
-        Paint()
-          ..color =
-              (rng.nextBool() ? AppColors.neonRed : AppColors.neonPurple)
-                  .withOpacity(op),
-      );
+      canvas.drawCircle(Offset(x, y), rad,
+          Paint()..color = (rng.nextBool()
+              ? AppColors.neonCyan : AppColors.neonPurple).withOpacity(op));
     }
   }
 
@@ -368,7 +373,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = AppColors.neonRed.withOpacity(0.02)
+      ..color = AppColors.neonPurple.withOpacity(0.035)
       ..strokeWidth = 1;
     for (double x = 0; x < size.width; x += 38) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);

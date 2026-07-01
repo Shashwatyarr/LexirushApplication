@@ -6,9 +6,6 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
-import '../../game/lexirush/game_screen.dart';
-import '../../game/spell_shooter/spell_game_screen.dart';
-import '../../../routes/app_routes.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   final String roomCode;
@@ -77,29 +74,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
     _socket!.on('gameStarted', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-
-      if (d.containsKey('fullQuestionData')) {
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.spellGame,
-          arguments: {
-            'roomCode': widget.roomCode,
-            'fullQuestionData': d['fullQuestionData'],
-            'reconnectData': d,
-          },
-        );
-      } else {
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.game,
-          arguments: {
-            'roomCode': widget.roomCode,
-            'data': d,
-          },
-        );
-      }
-
+      // TODO: Navigator.pushReplacementNamed(context, AppRoutes.game,
+      //   arguments: {'roomCode': widget.roomCode, 'data': data});
       debugPrint('Rematch started: $data');
     });
 

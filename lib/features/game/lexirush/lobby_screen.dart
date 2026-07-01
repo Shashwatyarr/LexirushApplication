@@ -10,6 +10,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
+import 'game_screen.dart';
 import '../../../routes/app_routes.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -207,8 +208,17 @@ class _LobbyScreenState extends State<LobbyScreen>
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      // TODO: Navigate to game screen with reconnect data
-      debugPrint('Reconnect: $data');
+      final d = Map<String, dynamic>.from(data as Map);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GameScreen(
+            roomCode: widget.roomCode,
+            isAdmin: widget.isAdmin,
+            initialState: d,
+          ),
+        ),
+      );
     });
 
     // ── pdfError ──
