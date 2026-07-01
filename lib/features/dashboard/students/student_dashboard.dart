@@ -6,11 +6,8 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
-import '../../game/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../profile/screens/profile_screen.dart';
-import '../../game/lexirush/lobby_screen.dart';
-import '../../game/spell_shooter/spell_lobby_screen.dart';
 import '../../leaderboard/screens/global_ranking_screen.dart';
 import '../../../routes/app_routes.dart';
 
@@ -25,16 +22,12 @@ class _StudentDashboardState extends State<StudentDashboard>
     with TickerProviderStateMixin {
 
   late AnimationController _particleController;
-  late AnimationController _pulseController;
-
-  final RoomService _roomService = RoomService();
   final AuthService _authService = AuthService();
 
-  final TextEditingController _roomCodeController = TextEditingController();
-
-  bool _isJoining = false;
-  String? _error;
   String _userName = '';
+  String _userAvatar = '';
+  
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -43,10 +36,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       duration: const Duration(seconds: 6),
       vsync: this,
     )..repeat();
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
     _loadUser();
   }
 
@@ -62,50 +51,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   @override
   void dispose() {
     _particleController.dispose();
-    _pulseController.dispose();
-    _roomCodeController.dispose();
     super.dispose();
-  }
-
-  Future<void> _handleJoinRoom() async {
-    final code = _roomCodeController.text.trim();
-    if (code.isEmpty) {
-      setState(() => _error = 'Room code daalo!');
-      return;
-    }
-    setState(() { _isJoining = true; _error = null; });
-    try {
-      final data = await _roomService.joinRoom(code);
-      if (!mounted) return;
-      debugPrint('Joined: $data');
-
-      // Backend tells us which game mode this room is for
-      // (falls back to 'lexirush' if the field isn't present).
-      final roomData = data['room'];
-      final gameMode = (data['gameMode'] ??
-          (roomData is Map ? roomData['gameMode'] : null) ??
-          'lexirush').toString();
-
-      if (gameMode == 'spell_shooter') {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SpellLobbyScreen(roomCode: code, isAdmin: false),
-          ),
-        );
-      } else {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => LobbyScreen(roomCode: code, isAdmin: false),
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _isJoining = false);
-    }
   }
 
   Future<void> _handleLogout() async {
@@ -114,46 +60,86 @@ class _StudentDashboardState extends State<StudentDashboard>
     Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
-  Future<void> _openProfile() async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ProfileScreen()),
-    );
+  void _onTabTapped(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  }
+  
+  void _goToHome() {
+    setState(() {
+      _currentIndex = 0;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgDeep,
-      body: Stack(
+      body: IndexedStack(
+        index: _currentIndex,
         children: [
-          _CyberParticles(controller: _particleController),
-          const _CyberGrid(),
-          SafeArea(
-            child: Column(
-              children: [
-                _buildTopBar(),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 24),
-                        _buildWelcomeCard(),
-                        const SizedBox(height: 20),
-                        _buildJoinRoomCard(),
-                        const SizedBox(height: 20),
-                        _buildGameModesCard(),
-                        const SizedBox(height: 30),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildHomeTab(),
+          ProfileScreen(onBack: _goToHome),
+          GlobalRankingScreen(onBack: _goToHome),
         ],
       ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.neonPurple.withOpacity(0.3), width: 1)),
+        ),
+        child: BottomNavigationBar(
+          backgroundColor: AppColors.bgDeep,
+          selectedItemColor: AppColors.neonCyan,
+          unselectedItemColor: Colors.white54,
+          currentIndex: _currentIndex,
+          onTap: _onTabTapped,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_rounded),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_rounded),
+              label: 'Profile',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.leaderboard_rounded),
+              label: 'Leaderboard',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return Stack(
+      children: [
+        _CyberParticles(controller: _particleController),
+        const _CyberGrid(),
+        SafeArea(
+          child: Column(
+            children: [
+              _buildTopBar(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 24),
+                      _buildWelcomeCard(),
+                      const SizedBox(height: 20),
+                      _buildGameModesCard(),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -238,7 +224,11 @@ class _StudentDashboardState extends State<StudentDashboard>
       child: Row(
         children: [
           GestureDetector(
-            onTap: _openProfile,
+            onTap: () {
+              setState(() {
+                _currentIndex = 1;
+              });
+            },
             child: Container(
               width: 60, height: 60,
               decoration: BoxDecoration(
@@ -295,133 +285,6 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // ── JOIN ROOM CARD ───────────────────────────────────────
-  Widget _buildJoinRoomCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.neonPurple.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.meeting_room_rounded,
-                  color: AppColors.neonPurple, size: 22),
-              const SizedBox(width: 10),
-              const Text('Join a Match',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Error
-          if (_error != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.withOpacity(0.4)),
-              ),
-              child: Text(_error!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Room code input
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.bgSurface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.neonPurple.withOpacity(0.3)),
-            ),
-            child: TextField(
-              controller: _roomCodeController,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 3,
-                fontSize: 18,
-              ),
-              textAlign: TextAlign.center,
-              textCapitalization: TextCapitalization.characters,
-              decoration: InputDecoration(
-                hintText: 'ENTER ROOM CODE',
-                hintStyle: TextStyle(
-                  color: Colors.white.withOpacity(0.25),
-                  letterSpacing: 2,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 16),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Join button
-          GestureDetector(
-            onTap: _isJoining ? null : _handleJoinRoom,
-            child: Container(
-              width: double.infinity,
-              height: 52,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppColors.neonPurple, const Color(0xFF7B2FE0)],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.neonPurple.withOpacity(0.4),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: _isJoining
-                    ? const SizedBox(
-                  width: 22, height: 22,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-                    : const Text('JOIN MATCH',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ── GAME MODES CARD ──────────────────────────────────────
   Widget _buildGameModesCard() {
     return Column(
@@ -442,7 +305,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               title: 'LexiRush',
               subtitle: 'Word battle arena',
               color: AppColors.neonPurple,
-              onTap: () => _showModeInfo('lexirush'),
+              onTap: () => _showModeInfo('lexirush', 'LexiRush', 'Word battle arena'),
             )),
             const SizedBox(width: 12),
             Expanded(child: _buildModeCard(
@@ -450,7 +313,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               title: 'Spell\nShooter',
               subtitle: 'Shoot the answer',
               color: const Color(0xFF00BCD4),
-              onTap: () => _showModeInfo('spell_shooter'),
+              onTap: () => _showModeInfo('spell_shooter', 'Spell Shooter', 'Shoot the answer'),
             )),
           ],
         ),
@@ -458,15 +321,15 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // NOTE: Players join a specific room via the room-code box above;
-  // they don't start a match from this card directly. Tapping a mode
-  // card currently opens that mode's global leaderboard as a quick
-  // preview. Swap this for whatever flow you actually want here
-  // (e.g. filtering "Join a Match" by mode, or showing rules).
-  void _showModeInfo(String mode) {
-    Navigator.push(
+  void _showModeInfo(String mode, String title, String description) {
+    Navigator.pushNamed(
       context,
-      MaterialPageRoute(builder: (_) => const GlobalRankingScreen()),
+      AppRoutes.gameModeDetail,
+      arguments: {
+        'gameMode': mode,
+        'title': title,
+        'description': description,
+      },
     );
   }
 
