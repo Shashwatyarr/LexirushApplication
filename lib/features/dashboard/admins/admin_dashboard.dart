@@ -9,6 +9,7 @@ import '../../auth/services/auth_service.dart';
 import '../services/admin_service.dart';
 import '../../game/lexirush/lobby_screen.dart';
 import '../../../routes/app_routes.dart';
+import 'create_room_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -58,15 +59,11 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Future<void> _handleCreateRoom() async {
-    setState(() { _isCreating = true; _error = null; });
-    try {
-      await _adminService.createRoomAdmin();
-      await _loadRooms();
-    } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _isCreating = false);
-    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreateRoomScreen()),
+    );
+    _loadRooms();
   }
 
   Future<void> _handleDeleteRoom(String roomCode) async {

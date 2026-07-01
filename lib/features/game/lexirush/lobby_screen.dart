@@ -84,17 +84,23 @@ class _LobbyScreenState extends State<LobbyScreen>
   Future<void> _initLobby() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final userId   = prefs.getString('userId') ?? '';
-      final userName = prefs.getString('userName') ?? 'Player';
+      String userId   = prefs.getString('userId') ?? '';
+      final userName = prefs.getString('username') ?? prefs.getString('userName') ?? 'Admin';
       final avatar   = prefs.getString('avatar') ?? '';
       final role     = prefs.getString('role') ?? 'student';
+
+      if (userId.isEmpty && widget.isAdmin) {
+        userId = 'admin_${DateTime.now().millisecondsSinceEpoch}';
+      }
 
       // Try fetching fresh user data
       int userLevel = 1;
       try {
-        final res = await ApiClient.get('/auth/$userId');
-        if (res.statusCode == 200) {
-          // parse level if available
+        if (userId.isNotEmpty && !userId.startsWith('admin_')) {
+          final res = await ApiClient.get('/auth/$userId');
+          if (res.statusCode == 200) {
+            // parse level if available
+          }
         }
       } catch (_) {}
 
@@ -136,6 +142,21 @@ class _LobbyScreenState extends State<LobbyScreen>
         'level'    : level,
         'isAdmin'  : widget.isAdmin,
       });
+    });
+
+    _socket!.onConnectError((err) {
+      debugPrint('Socket connect error: $err');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showSnack('Connection failed: $err', color: AppColors.neonRed);
+      }
+    });
+
+    _socket!.onDisconnect((_) {
+      debugPrint('Socket disconnected');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     });
 
     // ── roomData — main state update ──
@@ -231,7 +252,10 @@ class _LobbyScreenState extends State<LobbyScreen>
     // ── error ──
     _socket!.on('error', (msg) {
       if (!mounted) return;
-      setState(() => _isGeneratingPDF = false);
+      setState(() {
+        _isGeneratingPDF = false;
+        _isLoading = false;
+      });
       _showSnack(msg.toString(), color: AppColors.neonRed);
     });
   }
