@@ -5,8 +5,9 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import '../../../core/network/api_client.dart';
 import '../../../core/constants/app_colors.dart';
+import 'dart:convert';
 
 class GlobalRankingScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -21,8 +22,6 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
 
   late AnimationController _particleCtrl;
   late AnimationController _crownCtrl;
-
-  IO.Socket? _socket;
 
   bool _isLoading = true;
   List<Map<String, dynamic>> _leaderboard = [];
@@ -49,8 +48,6 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
 
   @override
   void dispose() {
-    _socket?.disconnect();
-    _socket?.dispose();
     _particleCtrl.dispose();
     _crownCtrl.dispose();
     super.dispose();
@@ -64,37 +61,27 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
       _userLevel  = prefs.getInt('userLevel')   ?? 1;
       _role       = prefs.getString('role')     ?? 'student';
     });
-    _connectSocket();
+    _fetchLeaderboard();
   }
 
-  void _connectSocket() {
-    _socket = IO.io(
-      'https://tambola-67o6.onrender.com',
-      IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
-    );
-    _socket!.connect();
-
-    _socket!.onConnect((_) {
-      _socket!.emit('requestGlobalLeaderboard', {
-        'page': 1, 'limit': 10, 'isAdmin': false,
-      });
-    });
-
-    _socket!.on('globalLeaderboardData', (data) {
-      if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      final list = (d['leaderboard'] as List?) ?? [];
-      setState(() {
-        _leaderboard = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        _isLoading = false;
-      });
-    });
-
-    _socket!.on('error', (msg) {
-      if (!mounted) return;
-      debugPrint('Leaderboard error: $msg');
-      setState(() => _isLoading = false);
-    });
+  Future<void> _fetchLeaderboard() async {
+    try {
+      final res = await ApiClient.get('/leaderboard');
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true) {
+          final list = (data['leaderboard'] as List?) ?? [];
+          setState(() {
+            _leaderboard = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Leaderboard fetch error: $e');
+    }
+    setState(() => _isLoading = false);
   }
 
   Future<void> _handleLogout() async {
@@ -105,9 +92,9 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
 
   String _avatarUrl(Map<String, dynamic> p) {
     final a = p['avatar'] as String?;
-    if (a != null && a.isNotEmpty) return a;
+    if (a != null && a.isNotEmpty) return a.replaceAll('/svg', '/png');
     final name = Uri.encodeComponent(p['name'] as String? ?? 'Player');
-    return 'https://api.dicebear.com/7.x/avataaars/svg?seed=$name';
+    return 'https://api.dicebear.com/7.x/avataaars/png?seed=$name';
   }
 
   // ============================================================
@@ -224,7 +211,7 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
                   ),
                   child: ClipOval(
                     child: _userAvatar.isNotEmpty
-                        ? Image.network(_userAvatar, fit: BoxFit.cover,
+                        ? Image.network(_userAvatar.replaceAll('/svg', '/png'), fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => const Icon(
                             Icons.person, size: 14, color: Colors.white60))
                         : const Icon(Icons.person, size: 14, color: Colors.white60),

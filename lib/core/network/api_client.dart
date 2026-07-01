@@ -31,7 +31,7 @@ class ApiClient {
 
   static Future<http.Response> get(String endpoint) async {
     final headers = await getHeaders();
-    return await http.get(Uri.parse('$baseUrl$endpoint'), headers: headers);
+    return await http.get(Uri.parse('$baseUrl$endpoint'), headers: headers).timeout(const Duration(seconds: 15));
   }
 
   static Future<http.Response> post(String endpoint, {Map<String, dynamic>? body}) async {
@@ -40,7 +40,7 @@ class ApiClient {
       Uri.parse('$baseUrl$endpoint'),
       headers: headers,
       body: body != null ? jsonEncode(body) : null,
-    );
+    ).timeout(const Duration(seconds: 15));
   }
 
   static Future<http.Response> put(String endpoint, {Map<String, dynamic>? body}) async {
@@ -49,12 +49,12 @@ class ApiClient {
       Uri.parse('$baseUrl$endpoint'),
       headers: headers,
       body: body != null ? jsonEncode(body) : null,
-    );
+    ).timeout(const Duration(seconds: 15));
   }
 
   static Future<http.Response> delete(String endpoint) async {
     final headers = await getHeaders();
-    return await http.delete(Uri.parse('$baseUrl$endpoint'), headers: headers);
+    return await http.delete(Uri.parse('$baseUrl$endpoint'), headers: headers).timeout(const Duration(seconds: 15));
   }
 
   static Uri getUri(String endpoint) {

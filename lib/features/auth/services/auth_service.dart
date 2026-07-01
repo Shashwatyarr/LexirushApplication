@@ -17,7 +17,7 @@ class AuthService {
 
   // GET MATCH HISTORY
   Future<List<dynamic>> getHistory(String userId) async {
-    final response = await ApiClient.get('/auth/history/$userId');
+    final response = await ApiClient.get('/auth/history');
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
