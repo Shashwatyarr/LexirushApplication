@@ -5,6 +5,9 @@ class AppRoutes {
   static const String studentDashboard = '/studentDashboard';
   static const String adminDashboard = '/adminDashboard';
   
+  // Dashboard & Games
+  static const String gameModeDetail = '/gameModeDetail';
+
   // LexiRush
   static const String lobby = '/lobby';
   static const String game = '/game';

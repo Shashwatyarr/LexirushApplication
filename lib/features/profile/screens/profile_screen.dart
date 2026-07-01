@@ -14,7 +14,8 @@ import '../../game/lexirush/game_screen.dart';
 import '../../../routes/app_routes.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final VoidCallback? onBack;
+  const ProfileScreen({super.key, this.onBack});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -338,6 +339,26 @@ class _ProfileScreenState extends State<ProfileScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
+          if (Navigator.canPop(context) || widget.onBack != null)
+            GestureDetector(
+              onTap: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else if (widget.onBack != null) {
+                  widget.onBack!();
+                }
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                ),
+                child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 18),
+              ),
+            ),
           ShaderMask(
             shaderCallback: (b) => const LinearGradient(
               colors: [AppColors.neonCyan, AppColors.neonPurple],

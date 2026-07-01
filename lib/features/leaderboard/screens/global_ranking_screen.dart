@@ -9,7 +9,8 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
 
 class GlobalRankingScreen extends StatefulWidget {
-  const GlobalRankingScreen({super.key});
+  final VoidCallback? onBack;
+  const GlobalRankingScreen({super.key, this.onBack});
 
   @override
   State<GlobalRankingScreen> createState() => _GlobalRankingScreenState();
@@ -170,6 +171,26 @@ class _GlobalRankingScreenState extends State<GlobalRankingScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
+          if (Navigator.canPop(context) || widget.onBack != null)
+            GestureDetector(
+              onTap: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else if (widget.onBack != null) {
+                  widget.onBack!();
+                }
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                ),
+                child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 18),
+              ),
+            ),
           ShaderMask(
             shaderCallback: (b) => const LinearGradient(
               colors: [AppColors.neonCyan, AppColors.neonPurple],

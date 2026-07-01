@@ -5,6 +5,7 @@ import 'app_routes.dart';
 import '../features/auth/screens/player_login_screen.dart';
 import '../features/auth/screens/admin_login_screen.dart';
 import '../features/dashboard/students/student_dashboard.dart';
+import '../features/dashboard/students/game_mode_detail_screen.dart';
 import '../features/dashboard/admins/admin_dashboard.dart';
 import '../features/game/lexirush/lobby_screen.dart';
 import '../features/game/lexirush/game_screen.dart';
@@ -36,6 +37,18 @@ class RouteGenerator {
 
       case AppRoutes.analytics:
         return MaterialPageRoute(builder: (_) => const AnalyticsScreen());
+
+      case AppRoutes.gameModeDetail:
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            builder: (_) => GameModeDetailScreen(
+              gameMode: args['gameMode'] as String? ?? 'lexirush',
+              title: args['title'] as String? ?? 'Game',
+              description: args['description'] as String? ?? 'Join the battle',
+            ),
+          );
+        }
+        return _errorRoute('Invalid arguments for GameModeDetailScreen');
 
       // LexiRush
       case AppRoutes.lobby:
