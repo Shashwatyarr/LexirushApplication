@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_client.dart';
 import '../../game/lexirush/game_screen.dart';
 import '../../../routes/app_routes.dart';
 
@@ -26,8 +27,6 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   late AnimationController _particleCtrl;
   IO.Socket? _socket;
-
-  static const String _baseUrl = 'https://tambola-67o6.onrender.com';
 
   // ── User state ───────────────────────────────────────────
   bool   _isLoading = true;
@@ -84,13 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     try {
       if (!_userId.startsWith('admin_')) {
-        final res = await http.get(
-          Uri.parse('$_baseUrl/api/auth/$_userId'),
-          headers: {
-            'Content-Type' : 'application/json',
-            'Authorization': 'Bearer $_token',
-          },
-        );
+        final res = await ApiClient.get('/auth/$_userId');
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           fetchedName = data['name'] ?? data['user']?['name'] ?? fetchedName;
@@ -118,7 +111,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     // ── Fetch avatars ──
     try {
-      final avRes = await http.get(Uri.parse('$_baseUrl/api/user/avatars'));
+      final avRes = await ApiClient.get('/user/avatars');
       if (avRes.statusCode == 200) {
         final avData = jsonDecode(avRes.body);
         final list = avData is List ? avData : (avData['avatars'] ?? []);
@@ -153,8 +146,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       return;
     }
     try {
-      final res = await http.get(
-          Uri.parse('$_baseUrl/api/auth/history/$_userId'));
+      final res = await ApiClient.get('/auth/history');
       final data = jsonDecode(res.body);
       if (data['success'] == true) {
         setState(() {
@@ -172,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   void _connectSocket() {
     _socket = IO.io(
-      _baseUrl,
+      'https://tambola-67o6.onrender.com',
       IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
     );
     _socket!.connect();
@@ -206,13 +198,9 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     try {
       if (_selectedAvatarId.isNotEmpty && _selectedAvatarImg != _avatar) {
-        final res = await http.put(
-          Uri.parse('$_baseUrl/api/user/avatar'),
-          headers: {
-            'Content-Type' : 'application/json',
-            'Authorization': 'Bearer $_token',
-          },
-          body: jsonEncode({'avatarId': _selectedAvatarId}),
+        final res = await ApiClient.put(
+          '/user/avatar',
+          body: {'avatarId': _selectedAvatarId},
         );
         if (res.statusCode != 200) avatarSuccess = false;
       }
@@ -442,7 +430,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                   child: ClipOval(
                     child: _selectedAvatarImg.isNotEmpty
-                        ? Image.network(_selectedAvatarImg, fit: BoxFit.cover,
+                        ? Image.network(_selectedAvatarImg.replaceAll('/svg', '/png'), fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                             color: AppColors.bgSurface,
                             child: const Icon(Icons.person, size: 40, color: Colors.white24)))
@@ -607,7 +595,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                               Opacity(
                                 opacity: isSelected ? 1.0 : 0.55,
                                 child: Image.network(
-                                  a['image'] as String? ?? '',
+                                  (a['image'] as String? ?? '').replaceAll('/svg', '/png'),
                                   width: 60, height: 60, fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => Container(
                                       color: AppColors.bgSurface,
