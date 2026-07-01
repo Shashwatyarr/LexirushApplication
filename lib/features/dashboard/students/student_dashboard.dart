@@ -44,7 +44,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       final prefs = await SharedPreferencesHelper.getAll();
       setState(() {
         _userName = prefs['username'] ?? 'Player';
-        _userAvatar = prefs['avatar'] ?? '';
       });
     } catch (_) {}
   }
@@ -418,6 +417,7 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width == 0 || size.height == 0) return;
     final rng = math.Random(99);
     for (int i = 0; i < 28; i++) {
       final x = rng.nextDouble() * size.width;

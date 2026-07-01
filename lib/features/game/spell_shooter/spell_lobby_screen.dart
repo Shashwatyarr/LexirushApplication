@@ -90,16 +90,22 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
   Future<void> _initLobby() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final userId   = prefs.getString('userId') ?? '';
-      final userName = prefs.getString('userName') ?? 'Shooter';
+      String userId   = prefs.getString('userId') ?? '';
+      final userName = prefs.getString('username') ?? prefs.getString('userName') ?? 'Admin';
       final avatar   = prefs.getString('avatar') ?? '';
       final role     = prefs.getString('role') ?? 'student';
 
+      if (userId.isEmpty && widget.isAdmin) {
+        userId = 'admin_${DateTime.now().millisecondsSinceEpoch}';
+      }
+
       int userLevel = 1;
       try {
-        final res = await ApiClient.get('/auth/$userId');
-        if (res.statusCode == 200) {
-          // parse level if your ApiClient response shape exposes it
+        if (userId.isNotEmpty && !userId.startsWith('admin_')) {
+          final res = await ApiClient.get('/auth/$userId');
+          if (res.statusCode == 200) {
+            // parse level if your ApiClient response shape exposes it
+          }
         }
       } catch (_) {}
 
@@ -141,6 +147,21 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
         'level'    : level,
         'isAdmin'  : widget.isAdmin,
       });
+    });
+
+    _socket!.onConnectError((err) {
+      debugPrint('Socket connect error: $err');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showSnack('Connection failed: $err', color: AppColors.neonRed);
+      }
+    });
+
+    _socket!.onDisconnect((_) {
+      debugPrint('Socket disconnected');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     });
 
     // ── roomData — main state update ──
@@ -223,6 +244,7 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     // ── error ──
     _socket!.on('error', (msg) {
       if (!mounted) return;
+      setState(() => _isLoading = false);
       final text = msg.toString();
       if (text.toLowerCase().contains('not found') ||
           text.toLowerCase().contains('expired')) {
@@ -1159,6 +1181,7 @@ class _SpellParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width == 0 || size.height == 0) return;
     final rng = math.Random(42);
     for (int i = 0; i < 28; i++) {
       final x     = rng.nextDouble() * size.width;

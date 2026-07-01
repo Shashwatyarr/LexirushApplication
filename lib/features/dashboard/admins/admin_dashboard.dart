@@ -4,12 +4,12 @@
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
 import '../services/admin_service.dart';
 import '../../game/lexirush/lobby_screen.dart';
 import '../../../routes/app_routes.dart';
+import 'create_room_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -59,15 +59,11 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Future<void> _handleCreateRoom() async {
-    setState(() { _isCreating = true; _error = null; });
-    try {
-      await _adminService.createRoomAdmin();
-      await _loadRooms();
-    } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _isCreating = false);
-    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreateRoomScreen()),
+    );
+    _loadRooms();
   }
 
   Future<void> _handleDeleteRoom(String roomCode) async {
@@ -471,6 +467,7 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width == 0 || size.height == 0) return;
     final rng = math.Random(99);
     for (int i = 0; i < 28; i++) {
       final x = rng.nextDouble() * size.width;
