@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../../core/constants/app_colors.dart';
 import '../../auth/services/auth_service.dart';
-import '../../auth/services/user_service.dart';
 import '../../game/services/room_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,7 +30,6 @@ class _StudentDashboardState extends State<StudentDashboard>
   bool _isJoining = false;
   String? _error;
   String _userName = '';
-  String _userAvatar = '';
 
   @override
   void initState() {
@@ -52,7 +50,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       final prefs = await SharedPreferencesHelper.getAll();
       setState(() {
         _userName = prefs['username'] ?? 'Player';
-        _userAvatar = prefs['avatar'] ?? '';
       });
     } catch (_) {}
   }
