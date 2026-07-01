@@ -146,14 +146,18 @@ class _ProfileScreenState extends State<ProfileScreen>
       return;
     }
     try {
-      final res = await ApiClient.get('/auth/history');
-      final data = jsonDecode(res.body);
-      if (data['success'] == true) {
-        setState(() {
-          _history = List<Map<String, dynamic>>.from(
-            (data['history'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
-          );
-        });
+      final res = await ApiClient.get('/auth/history/$_userId');
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data['success'] == true) {
+          setState(() {
+            _history = List<Map<String, dynamic>>.from(
+              (data['history'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+            );
+          });
+        }
+      } else {
+        debugPrint('History Fetch Error: ${res.statusCode} ${res.body}');
       }
     } catch (e) {
       debugPrint('History fetch error: $e');
