@@ -205,13 +205,14 @@ class _LobbyScreenState extends State<LobbyScreen>
     });
 
     _socket!.on('gameStarted', (data) {
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
-        'roomCode': widget.roomCode,
-        'isAdmin': widget.isAdmin,
-        'data': data,
-      });
-    });
+  if (!mounted) return;
+  final safeData = Map<String, dynamic>.from(data as Map);
+  Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
+    'roomCode': widget.roomCode,
+    'isAdmin': widget.isAdmin,
+    'data': safeData,            // ← Properly converted
+  });
+});
 
     // ── gamePrepared — PDF ready ──
     _socket!.on('gamePrepared', (data) async {
@@ -267,14 +268,19 @@ class _LobbyScreenState extends State<LobbyScreen>
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
+      final rawData = data is List ? data.first : data;
+      final d = Map<String, dynamic>.from(rawData as Map);
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => GameScreen(
             roomCode: widget.roomCode,
             isAdmin: widget.isAdmin,
-            initialState: d,
+            initialState: {
+              'reconnectData': d,
+              'gridBase': d['gridBase'],
+              'fullQuestionData': d['fullQuestionData'],
+            },
           ),
         ),
       );
@@ -294,7 +300,13 @@ class _LobbyScreenState extends State<LobbyScreen>
         _isGeneratingPDF = false;
         _isLoading = false;
       });
-      _showSnack(msg.toString(), color: AppColors.neonRed);
+      final msgStr = msg.toString();
+      if (msgStr.toLowerCase().contains('not found') || msgStr.toLowerCase().contains('expired')) {
+         _showSnack(msgStr, color: AppColors.neonRed);
+         Navigator.pop(context);
+      } else {
+         _showSnack(msgStr, color: AppColors.neonRed);
+      }
     });
   }
 
@@ -336,20 +348,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   void _handleGeneratePDF() {
     setState(() => _isGeneratingPDF = true);
-    
-    // Add a slight delay to ensure socket buffer is clear
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) {
-        _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
-      }
-    });
-    
-    Future.delayed(const Duration(seconds: 45), () {
-      if (mounted && _isGeneratingPDF) {
-        setState(() => _isGeneratingPDF = false);
-        _showSnack('PDF Generation timed out. Please try again.', color: AppColors.neonRed);
-      }
-    });
+    _handleUpdateSettings();
+    _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
   }
 
   void _handleStudentDownloadPDF() {
