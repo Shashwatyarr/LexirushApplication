@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import '../../../core/util/pdf_generator.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
@@ -69,6 +70,14 @@ class _LobbyScreenState extends State<LobbyScreen>
     )..repeat(reverse: true);
 
     _initLobby();
+
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted && _isLoading) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    });
   }
 
   @override
@@ -93,16 +102,15 @@ class _LobbyScreenState extends State<LobbyScreen>
         userId = 'admin_${DateTime.now().millisecondsSinceEpoch}';
       }
 
-      // Try fetching fresh user data
+      // Fire-and-forget fetch to avoid blocking the lobby load
       int userLevel = 1;
-      try {
-        if (userId.isNotEmpty && !userId.startsWith('admin_')) {
-          final res = await ApiClient.get('/auth/$userId');
+      if (userId.isNotEmpty && !userId.startsWith('admin_')) {
+        ApiClient.get('/auth/$userId').then((res) {
           if (res.statusCode == 200) {
-            // parse level if available
+            // parse level and update later if needed
           }
-        }
-      } catch (_) {}
+        }).catchError((_) {});
+      }
 
       setState(() {
         _currentUser = {
@@ -141,6 +149,7 @@ class _LobbyScreenState extends State<LobbyScreen>
         'avatar'   : avatar,
         'level'    : level,
         'isAdmin'  : widget.isAdmin,
+        'role'     : _currentUser?['role'] ?? 'student',
       });
     });
 
@@ -205,10 +214,39 @@ class _LobbyScreenState extends State<LobbyScreen>
     });
 
     // ── gamePrepared — PDF ready ──
-    _socket!.on('gamePrepared', (data) {
+    _socket!.on('gamePrepared', (data) async {
       if (!mounted) return;
       setState(() => _isGeneratingPDF = false);
-      _showSnack('PDF prepared! Download from web client.', color: AppColors.neonGreen);
+      _showSnack('PDF prepared! Generating document...', color: AppColors.neonGreen);
+      
+      try {
+        final rawData = data is List ? data.first : data;
+        final d = Map<String, dynamic>.from(rawData as Map);
+        final pdfData = d['pdfData'] as List<dynamic>? ?? [];
+        final roomName = d['pdfRoomName']?.toString() ?? widget.roomCode;
+        final level = d['pdfLevel']?.toString() ?? 'Unknown';
+
+        if (pdfData.isEmpty) {
+          _showSnack('No PDF data received.', color: AppColors.neonRed);
+          return;
+        }
+
+        await PdfGenerator.generateAndDownloadPdf(
+          context: context,
+          pdfData: pdfData,
+          roomCode: roomName,
+          level: level,
+        );
+      } catch (e) {
+        debugPrint('Error generating PDF: $e');
+        _showSnack('Failed to generate PDF', color: AppColors.neonRed);
+      }
+    });
+
+    _socket!.on('pdfError', (msg) {
+      if (!mounted) return;
+      setState(() => _isGeneratingPDF = false);
+      _showSnack(msg.toString(), color: AppColors.neonRed);
     });
 
     // ── playerKicked ──
@@ -298,13 +336,32 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   void _handleGeneratePDF() {
     setState(() => _isGeneratingPDF = true);
-    _handleUpdateSettings();
-    _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
+    
+    // Add a slight delay to ensure socket buffer is clear
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted) {
+        _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
+      }
+    });
+    
+    Future.delayed(const Duration(seconds: 45), () {
+      if (mounted && _isGeneratingPDF) {
+        setState(() => _isGeneratingPDF = false);
+        _showSnack('PDF Generation timed out. Please try again.', color: AppColors.neonRed);
+      }
+    });
   }
 
   void _handleStudentDownloadPDF() {
     setState(() => _isGeneratingPDF = true);
     _socket?.emit('requestPDFData', {'roomCode': widget.roomCode.toUpperCase()});
+
+    Future.delayed(const Duration(seconds: 45), () {
+      if (mounted && _isGeneratingPDF) {
+        setState(() => _isGeneratingPDF = false);
+        _showSnack('PDF Request timed out. Please try again.', color: AppColors.neonRed);
+      }
+    });
   }
 
   void _handleStartMatch() {
@@ -425,7 +482,29 @@ class _LobbyScreenState extends State<LobbyScreen>
   bool get _isPrepared => _roomData?['isPrepared'] == true;
   bool get _isCustom   => (_roomData?['gameSettings']?['isCustom']) == true;
 
-  List<dynamic> get _players => (_roomData?['players'] as List?) ?? [];
+  List<dynamic> get _players {
+    final serverPlayers = (_roomData?['players'] as List?) ?? [];
+    if (_currentUser == null) return serverPlayers;
+
+    final myId = _currentUser!['id'];
+    final bool amIThere = serverPlayers.any((p) => p['userId'] == myId || p['id'] == myId);
+
+    if (amIThere) {
+      return serverPlayers;
+    } else {
+      final mePlayer = {
+        'userId': myId,
+        'name': _currentUser!['name'],
+        'avatar': _currentUser!['avatar'],
+        'level': _currentUser!['level'],
+        'role': _currentUser!['role'],
+        'isAdmin': widget.isAdmin,
+        'isHost': widget.isAdmin,
+        'isOnline': true,
+      };
+      return [mePlayer, ...serverPlayers];
+    }
+  }
 
   // ============================================================
   // BUILD
@@ -1063,6 +1142,18 @@ class _LobbyScreenState extends State<LobbyScreen>
     final avatarUrl = player['avatar'] as String? ?? '';
     final name = player['name'] as String? ?? 'Player';
     final level = player['level'] ?? 1;
+    final role = (player['role'] as String?)?.toLowerCase() ?? '';
+
+    String displayRole = '';
+    if (role == 'superadmin') {
+      displayRole = 'SUPERADMIN';
+    } else if (role == 'admin' || player['isAdmin'] == true) {
+      displayRole = 'ADMIN';
+    } else if (isHost) {
+      displayRole = 'HOST';
+    } else {
+      displayRole = 'LVL $level';
+    }
 
     return Stack(
       children: [
@@ -1121,31 +1212,37 @@ class _LobbyScreenState extends State<LobbyScreen>
                         color: AppColors.neonPurple, size: 24),
                   ),
 
-                  // Level badge (not for host)
-                  if (!isHost)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
+                  // Level badge or role badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isOffline
+                          ? AppColors.neonRed.withOpacity(0.1)
+                          : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
+                              ? AppColors.neonPurple.withOpacity(0.1)
+                              : Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
                         color: isOffline
-                            ? AppColors.neonRed.withOpacity(0.1)
-                            : Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isOffline
-                              ? AppColors.neonRed.withOpacity(0.3)
-                              : Colors.white.withOpacity(0.1),
-                        ),
-                      ),
-                      child: Text('LVL $level',
-                        style: TextStyle(
-                          color: isOffline
-                              ? AppColors.neonRed
-                              : Colors.white70,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                        ),
+                            ? AppColors.neonRed.withOpacity(0.3)
+                            : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
+                                ? AppColors.neonPurple.withOpacity(0.5)
+                                : Colors.white.withOpacity(0.1),
                       ),
                     ),
+                    child: Text(
+                      isOffline ? 'OFFLINE' : displayRole,
+                      style: TextStyle(
+                        color: isOffline
+                            ? AppColors.neonRed
+                            : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
+                                ? AppColors.neonPurple
+                                : Colors.white70,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ],
               ),
 

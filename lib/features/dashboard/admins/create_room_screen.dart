@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../routes/app_routes.dart';
 
@@ -17,7 +16,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
     with TickerProviderStateMixin {
 
   late AnimationController _particleCtrl;
-  static const String _baseUrl = 'https://tambola-67o6.onrender.com';
 
   // ── Game mode ────────────────────────────────────────────
   String _gameMode     = 'lexirush'; // 'lexirush' | 'spell_shooter'
@@ -34,8 +32,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
   String _roomCode      = '';
   bool   _isGenerating  = false;
   String _splitError    = '';
-
-  String _token = '';
 
   bool get _isLexi => _gameMode == 'lexirush';
 
@@ -54,18 +50,12 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
     _particleCtrl = AnimationController(
       duration: const Duration(seconds: 6), vsync: this,
     )..repeat();
-    _loadToken();
   }
 
   @override
   void dispose() {
     _particleCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() => _token = prefs.getString('token') ?? '');
   }
 
   void _validate() {
@@ -80,7 +70,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
 
   // ── Generate Room ─────────────────────────────────────────
   Future<void> _handleGenerateRoom() async {
-    if (_token.isEmpty) return;
     if (!_isCustomRoom && _total != 25) {
       _showSnack('Total questions must be exactly 25.', AppColors.neonRed);
       return;
@@ -101,13 +90,9 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
         'gameMode'            : _gameMode,
       };
 
-      final res = await http.post(
-        Uri.parse('$_baseUrl/api/admin/create-room'),
-        headers: {
-          'Content-Type' : 'application/json',
-          'Authorization': 'Bearer $_token',
-        },
-        body: jsonEncode(payload),
+      final res = await ApiClient.post(
+        '/admin/create-room',
+        body: payload,
       );
 
       final data = jsonDecode(res.body);
