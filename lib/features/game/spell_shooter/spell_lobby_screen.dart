@@ -75,6 +75,14 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     )..repeat(reverse: true);
 
     _initLobby();
+
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted && _isLoading) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    });
   }
 
   @override
@@ -99,15 +107,15 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
         userId = 'admin_${DateTime.now().millisecondsSinceEpoch}';
       }
 
+      // Fire-and-forget fetch to avoid blocking the lobby load
       int userLevel = 1;
-      try {
-        if (userId.isNotEmpty && !userId.startsWith('admin_')) {
-          final res = await ApiClient.get('/auth/$userId');
+      if (userId.isNotEmpty && !userId.startsWith('admin_')) {
+        ApiClient.get('/auth/$userId').then((res) {
           if (res.statusCode == 200) {
             // parse level if your ApiClient response shape exposes it
           }
-        }
-      } catch (_) {}
+        }).catchError((_) {});
+      }
 
       setState(() {
         _currentUser = {
@@ -146,6 +154,7 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
         'avatar'   : avatar,
         'level'    : level,
         'isAdmin'  : widget.isAdmin,
+        'role'     : _currentUser?['role'] ?? 'student',
       });
     });
 
@@ -409,14 +418,36 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     return widget.isAdmin || (actualHostId == _currentUser?['id']);
   }
 
-  List<dynamic> get _players => (_roomData?['players'] as List?) ?? [];
+  List<dynamic> get _players {
+    final serverPlayers = (_roomData?['players'] as List?) ?? [];
+    if (_currentUser == null) return serverPlayers;
+
+    final myId = _currentUser!['id'];
+    final bool amIThere = serverPlayers.any((p) => p['userId'] == myId || p['id'] == myId);
+
+    if (amIThere) {
+      return serverPlayers;
+    } else {
+      final mePlayer = {
+        'userId': myId,
+        'name': _currentUser!['name'],
+        'avatar': _currentUser!['avatar'],
+        'level': _currentUser!['level'],
+        'role': _currentUser!['role'],
+        'isAdmin': widget.isAdmin,
+        'isHost': widget.isAdmin,
+        'isOnline': true,
+      };
+      return [mePlayer, ...serverPlayers];
+    }
+  }
 
   // ============================================================
   // BUILD
   // ============================================================
   @override
   Widget build(BuildContext context) {
-    if (_isLoading || _currentUser == null || _roomData == null) {
+    if (_isLoading || _currentUser == null) {
       return _buildLoadingScreen();
     }
 
@@ -903,6 +934,18 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
     final avatarUrl = player['avatar'] as String? ?? '';
     final name = player['name'] as String? ?? 'Shooter';
     final level = player['level'] ?? 1;
+    final role = (player['role'] as String?)?.toLowerCase() ?? '';
+
+    String displayRole = '';
+    if (role == 'superadmin') {
+      displayRole = 'SUPERADMIN';
+    } else if (role == 'admin' || player['isAdmin'] == true) {
+      displayRole = 'ADMIN';
+    } else if (isHost) {
+      displayRole = 'HOST';
+    } else {
+      displayRole = 'LVL $level';
+    }
 
     return Stack(
       clipBehavior: Clip.none,
@@ -981,24 +1024,24 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
                 decoration: BoxDecoration(
                   color: isOffline
                       ? AppColors.neonRed.withOpacity(0.1)
-                      : isHost
+                      : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
                       ? _spellGold.withOpacity(0.1)
                       : AppColors.neonGreen.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isOffline
                         ? AppColors.neonRed.withOpacity(0.2)
-                        : isHost
+                        : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
                         ? _spellGold.withOpacity(0.2)
                         : AppColors.neonGreen.withOpacity(0.2),
                   ),
                 ),
                 child: Text(
-                  isOffline ? 'OFFLINE' : (isHost ? 'HOST' : 'LVL $level'),
+                  isOffline ? 'OFFLINE' : displayRole,
                   style: TextStyle(
                     color: isOffline
                         ? AppColors.neonRed
-                        : isHost
+                        : (displayRole == 'SUPERADMIN' || displayRole == 'ADMIN' || displayRole == 'HOST')
                         ? _spellGold
                         : AppColors.neonGreen,
                     fontSize: 8,
