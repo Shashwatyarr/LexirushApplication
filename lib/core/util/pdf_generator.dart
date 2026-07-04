@@ -67,9 +67,10 @@ class PdfGenerator {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'Lexirush_Mission_$roomCode.pdf',
+    final bytes = await pdf.save();
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: 'Lexirush_Mission_$roomCode.pdf',
     );
   }
 }
