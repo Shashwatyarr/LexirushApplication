@@ -15,7 +15,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+// import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
@@ -51,7 +51,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
   IO.Socket? _socket;
   Timer? _timer;
-  final FlutterTts _tts = FlutterTts();
+  // final FlutterTts _tts = FlutterTts();
 
   late AnimationController _floatController;
   late AnimationController _confettiController;
@@ -105,7 +105,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     _timer?.cancel();
     _floatController.dispose();
     _confettiController.dispose();
-    _tts.stop();
+    // _tts.stop();
     _socket?.disconnect();
     _socket?.dispose();
     super.dispose();
@@ -285,6 +285,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
   // ── TTS ──────────────────────────────────────────────────
   Future<void> _playAudio(String? word) async {
     if (word == null || word.isEmpty) return;
+    /*
     setState(() => _isSpeaking = true);
     try {
       await _tts.setLanguage('en-IN');
@@ -297,6 +298,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       debugPrint('TTS error: $e');
       if (mounted) setState(() => _isSpeaking = false);
     }
+    */
   }
 
   // ── Shoot Action ─────────────────────────────────────────

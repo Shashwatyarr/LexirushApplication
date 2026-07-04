@@ -8,7 +8,6 @@ import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/util/pdf_generator.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
 import 'game_screen.dart';
@@ -170,6 +169,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── roomData — main state update ──
     _socket!.on('roomData', (data) {
+      debugPrint('==== SOCKET EVENT [roomData] ====');
+      debugPrint('Payload: $data');
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
       setState(() {
@@ -205,17 +206,26 @@ class _LobbyScreenState extends State<LobbyScreen>
     });
 
     _socket!.on('gameStarted', (data) {
-  if (!mounted) return;
-  final safeData = Map<String, dynamic>.from(data as Map);
-  Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
-    'roomCode': widget.roomCode,
-    'isAdmin': widget.isAdmin,
-    'data': safeData,            // ← Properly converted
-  });
-});
+      debugPrint('==== SOCKET EVENT [gameStarted] ====');
+      debugPrint('Payload: $data');
+      if (!mounted) return;
+      // Convert socket Map<dynamic,dynamic> to Map<String,dynamic>
+      final rawData = data is List ? data.first : data;
+      Map<String, dynamic> safeData = {};
+      try {
+        safeData = Map<String, dynamic>.from(rawData as Map);
+      } catch (_) {}
+      Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
+        'roomCode': widget.roomCode,
+        'isAdmin': widget.isAdmin,
+        'data': safeData,
+      });
+    });
 
     // ── gamePrepared — PDF ready ──
     _socket!.on('gamePrepared', (data) async {
+      debugPrint('==== SOCKET EVENT [gamePrepared] ====');
+      debugPrint('Payload: $data');
       if (!mounted) return;
       setState(() => _isGeneratingPDF = false);
       _showSnack('PDF prepared! Generating document...', color: AppColors.neonGreen);
@@ -267,6 +277,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
+      debugPrint('==== SOCKET EVENT [reconnectGame] ====');
+      debugPrint('Payload: $data');
       if (!mounted) return;
       final rawData = data is List ? data.first : data;
       final d = Map<String, dynamic>.from(rawData as Map);
@@ -288,6 +300,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── pdfError ──
     _socket!.on('pdfError', (msg) {
+      debugPrint('==== SOCKET EVENT [pdfError] ====');
+      debugPrint('Message: $msg');
       if (!mounted) return;
       setState(() => _isGeneratingPDF = false);
       _showSnack(msg.toString(), color: AppColors.neonRed);
@@ -295,6 +309,8 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── error ──
     _socket!.on('error', (msg) {
+      debugPrint('==== SOCKET EVENT [error] ====');
+      debugPrint('Message: $msg');
       if (!mounted) return;
       setState(() {
         _isGeneratingPDF = false;
