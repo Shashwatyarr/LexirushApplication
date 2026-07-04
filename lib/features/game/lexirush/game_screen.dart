@@ -2,10 +2,15 @@
 // FILE: lib/features/game/lexirush/game_screen.dart
 // ============================================================
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:confetti/confetti.dart';
+import 'package:flutter/services.dart';
+
 import '../../../core/constants/app_colors.dart';
 import '../../../routes/app_routes.dart';
 
@@ -16,6 +21,7 @@ class GridCell {
   GridCell({required this.cellId, required this.text});
   factory GridCell.fromJson(Map<String, dynamic> j) =>
       GridCell(cellId: j['cellId'] as String, text: j['text'] as String);
+  Map<String, dynamic> toJson() => {'cellId': cellId, 'text': text};
 }
 
 // ── Cell visual state ────────────────────────────────────────
@@ -37,12 +43,11 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
-    with TickerProviderStateMixin {
-
+class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ── Animation controllers ─────────────────────────────────
-  late AnimationController _particleCtrl;
   late AnimationController _timerPulseCtrl;
+  late AnimationController _shakeCtrl;
+  late ConfettiController _confettiController;
 
   // ── Socket ───────────────────────────────────────────────
   IO.Socket? _socket;
@@ -70,30 +75,47 @@ class _GameScreenState extends State<GameScreen>
   bool _gridVisible      = true;
   bool _questionChanging = false;
 
-  // ── Timer ────────────────────────────────────────────────
   bool _timerRunning = false;
+  bool _isDisposing = false;
+  Timer? _timer;
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-
-    _particleCtrl = AnimationController(
-      duration: const Duration(seconds: 6), vsync: this,
-    )..repeat();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeRight,
+      DeviceOrientation.landscapeLeft,
+    ]);
 
     _timerPulseCtrl = AnimationController(
       duration: const Duration(milliseconds: 500), vsync: this,
     )..repeat(reverse: true);
+
+    _shakeCtrl = AnimationController(
+      duration: const Duration(milliseconds: 400), vsync: this,
+    );
+
+    _confettiController = ConfettiController(duration: const Duration(seconds: 2));
 
     _loadUserAndConnect();
   }
 
   @override
   void dispose() {
+    _isDisposing = true;
+    _timer?.cancel();
     _socket?.disconnect();
     _socket?.dispose();
-    _particleCtrl.dispose();
     _timerPulseCtrl.dispose();
+    _shakeCtrl.dispose();
+    _confettiController.dispose();
+
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
     super.dispose();
   }
 
@@ -102,27 +124,38 @@ class _GameScreenState extends State<GameScreen>
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _userId   = prefs.getString('userId')   ?? '';
-      _userName = prefs.getString('userName') ?? 'Player';
-      _avatar   = prefs.getString('avatar')   ?? '';
+      _userName = prefs.getString('userName') ?? prefs.getString('name') ?? 'Player';
+      _avatar   = prefs.getString('avatar')   ?? prefs.getString('userAvatar') ?? 'https://api.dicebear.com/7.x/avataaars/svg?seed=$_userName';
       _role     = prefs.getString('role')     ?? 'student';
     });
 
-    // Build grid from nav args
-    if (widget.initialState != null) {
-      final gridBase = widget.initialState!['gridBase'] as List?;
-      if (gridBase != null && gridBase.isNotEmpty) {
-        final shuffled = List<Map<String,dynamic>>.from(gridBase)..shuffle();
+    // Storage fallback similar to React's sessionStorage
+    final savedGridStr = prefs.getString('grid_${widget.roomCode}');
+    final savedQsStr = prefs.getString('questions_${widget.roomCode}');
+
+    if (widget.initialState != null && widget.initialState!['gridBase'] != null && (widget.initialState!['gridBase'] as List).isNotEmpty) {
+      if (savedGridStr == null) {
+        final gb = widget.initialState!['gridBase'] as List;
+        final shuffled = List<Map<String,dynamic>>.from(gb)..shuffle();
         setState(() {
           _grid = shuffled.map((e) => GridCell.fromJson(Map<String,dynamic>.from(e))).toList();
         });
+        prefs.setString('grid_${widget.roomCode}', jsonEncode(_grid.map((c) => c.toJson()).toList()));
+      } else {
+        final decoded = jsonDecode(savedGridStr) as List;
+        setState(() {
+          _grid = decoded.map((e) => GridCell.fromJson(Map<String,dynamic>.from(e))).toList();
+        });
       }
+
       final fq = widget.initialState!['fullQuestionData'] as List?;
       if (fq != null) {
         setState(() {
           _fullQuestions = fq.map((e) => Map<String,dynamic>.from(e as Map)).toList();
         });
+        prefs.setString('questions_${widget.roomCode}', jsonEncode(_fullQuestions));
       }
-      // Reconnect data
+
       final rData = widget.initialState!['reconnectData'] as Map?;
       if (rData != null) {
         setState(() {
@@ -133,6 +166,17 @@ class _GameScreenState extends State<GameScreen>
         });
         _startTimer();
       }
+    } else if (savedGridStr != null && savedQsStr != null) {
+      final dGrid = jsonDecode(savedGridStr) as List;
+      final dQs = jsonDecode(savedQsStr) as List;
+      setState(() {
+        _grid = dGrid.map((e) => GridCell.fromJson(Map<String,dynamic>.from(e))).toList();
+        _fullQuestions = dQs.map((e) => Map<String,dynamic>.from(e as Map)).toList();
+      });
+    } else if (!widget.isAdmin) {
+      // Hard redirect if no state and no fallback
+      Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+      return;
     }
 
     _connectSocket();
@@ -142,7 +186,11 @@ class _GameScreenState extends State<GameScreen>
   void _connectSocket() {
     _socket = IO.io(
       'https://tambola-67o6.onrender.com',
-      IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     );
     _socket!.connect();
 
@@ -160,9 +208,19 @@ class _GameScreenState extends State<GameScreen>
       });
     });
 
+    _socket!.onDisconnect((_) {
+      // React hard reload check behavior
+      if (mounted && !_isDisposing) {
+        if (!widget.isAdmin) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Connection lost. Returning to dashboard.")));
+          Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
+        }
+      }
+    });
+
     // ── newQuestion ──
     _socket!.on('newQuestion', (data) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       final q = Map<String,dynamic>.from(data as Map);
       setState(() {
         _gridVisible      = false;
@@ -177,10 +235,10 @@ class _GameScreenState extends State<GameScreen>
         );
       });
       Future.delayed(const Duration(milliseconds: 150), () {
-        if (mounted) setState(() => _gridVisible = true);
+        if (mounted && !_isDisposing) setState(() => _gridVisible = true);
       });
       Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) setState(() => _questionChanging = false);
+        if (mounted && !_isDisposing) setState(() => _questionChanging = false);
       });
       _startTimer();
 
@@ -190,19 +248,23 @@ class _GameScreenState extends State<GameScreen>
 
     // ── answerResult ──
     _socket!.on('answerResult', (data) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       final d = Map<String,dynamic>.from(data as Map);
       setState(() {
         _score = (d['totalPoints'] as num?)?.toDouble() ?? _score;
         final cellId = d['cellId'] as String? ?? '';
         if (d['success'] == true) {
+          SystemSound.play(SystemSoundType.click); // Play success click
+          _confettiController.play();
           _cellStates[cellId] = CellState.correct;
           _isLocked = true;
         } else {
+          SystemSound.play(SystemSoundType.alert); // Play error alert
           _cellStates[cellId] = CellState.wrong;
           _isLocked = true;
+          _shakeCtrl.forward(from: 0.0);
           Future.delayed(const Duration(milliseconds: 1000), () {
-            if (mounted) setState(() {
+            if (mounted && !_isDisposing) setState(() {
               _cellStates[cellId] = CellState.idle;
               _isLocked = false;
             });
@@ -213,14 +275,14 @@ class _GameScreenState extends State<GameScreen>
 
     // ── hintResult ──
     _socket!.on('hintResult', (data) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       final d = Map<String,dynamic>.from(data as Map);
       setState(() => _hintData = d['meaning'] as String?);
     });
 
     // ── liveLeaderboard ──
     _socket!.on('liveLeaderboard', (data) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       setState(() {
         _liveRanks = (data as List)
             .map((e) => Map<String,dynamic>.from(e as Map))
@@ -229,8 +291,8 @@ class _GameScreenState extends State<GameScreen>
     });
 
     // ── reconnectGame ──
-    _socket!.on('reconnectGame', (data) {
-      if (!mounted) return;
+    _socket!.on('reconnectGame', (data) async {
+      if (!mounted || _isDisposing) return;
       final d = Map<String,dynamic>.from(data as Map);
       setState(() {
         _score    = (d['score'] as num?)?.toDouble() ?? 0;
@@ -246,24 +308,43 @@ class _GameScreenState extends State<GameScreen>
         setState(() {
           _grid = shuffled.map((e) => GridCell.fromJson(Map<String,dynamic>.from(e))).toList();
         });
+        final prefs = await SharedPreferences.getInstance();
+        prefs.setString('grid_${widget.roomCode}', jsonEncode(_grid.map((c) => c.toJson()).toList()));
+        
+        if (d['fullQuestionData'] != null) {
+          _fullQuestions = (d['fullQuestionData'] as List).map((e) => Map<String,dynamic>.from(e as Map)).toList();
+          prefs.setString('questions_${widget.roomCode}', jsonEncode(_fullQuestions));
+        }
       }
       _startTimer();
+      
+      if (widget.isAdmin && _currentQ != null) {
+        _highlightAdminCorrect(_currentQ!);
+      }
     });
 
     // ── playerKicked ──
-    _socket!.on('playerKicked', (kickedId) {
-      if (!mounted) return;
+    _socket!.on('playerKicked', (kickedId) async {
+      if (!mounted || _isDisposing) return;
       if (kickedId == _userId) {
+        final prefs = await SharedPreferences.getInstance();
+        prefs.remove('activeRoomCode');
+        prefs.remove('grid_${widget.roomCode}');
+        prefs.remove('questions_${widget.roomCode}');
         _showAlert('Kicked!', 'You were removed by the Admin.', () {
-          Navigator.pop(context);
+          Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard);
         });
       }
     });
 
-    // ── gameEnded ──
-    _socket!.on('gameEnded', (data) {
-      if (!mounted) return;
+    // ── gameEnded (gameOver) ──
+    _socket!.on('gameOver', (data) async {
+      if (!mounted || _isDisposing) return;
+      final prefs = await SharedPreferences.getInstance();
+      prefs.remove('grid_${widget.roomCode}');
+      prefs.remove('questions_${widget.roomCode}');
       final d = Map<String, dynamic>.from(data as Map);
+      
       final leaderboard = List<Map<String, dynamic>>.from(
         (d['leaderboard'] as List? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map)),
@@ -281,18 +362,19 @@ class _GameScreenState extends State<GameScreen>
       });
     });
 
-    // ── error ──
     _socket!.on('error', (msg) {
-      if (!mounted) return;
-      _showAlert('Arena Error', msg.toString(), () => Navigator.pop(context));
+      if (!mounted || _isDisposing) return;
+      _showAlert('Arena Error', msg.toString(), () => Navigator.pushReplacementNamed(context, AppRoutes.studentDashboard));
     });
   }
 
   void _highlightAdminCorrect(Map<String,dynamic> q) {
     final answer = q['answer'] ?? q['question']?['answer'];
     if (answer == null) return;
+    
+    final target = answer.toString().toLowerCase().trim();
     for (final cell in _grid) {
-      if (cell.text == answer) {
+      if (cell.text.toLowerCase().trim() == target) {
         setState(() => _cellStates[cell.cellId] = CellState.adminCorrect);
         break;
       }
@@ -301,15 +383,20 @@ class _GameScreenState extends State<GameScreen>
 
   // ── Timer ────────────────────────────────────────────────
   void _startTimer() {
+    _timer?.cancel();
     _timerRunning = true;
-    _tickTimer();
-  }
-
-  void _tickTimer() async {
-    while (_timerRunning && mounted && _timeLeft > 0) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted && _timerRunning) setState(() => _timeLeft--);
-    }
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_timeLeft > 0) {
+        setState(() => _timeLeft--);
+      } else {
+        timer.cancel();
+        _timerRunning = false;
+      }
+    });
   }
 
   // ── Actions ──────────────────────────────────────────────
@@ -331,11 +418,11 @@ class _GameScreenState extends State<GameScreen>
     _socket?.emit('useHint', {'roomCode': widget.roomCode, 'userId': _userId});
   }
 
-  void _handleExit() {
+  void _handleExit() async {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: AppColors.bgCard,
+        backgroundColor: const Color(0xFF131022),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: AppColors.neonRed.withOpacity(0.4)),
@@ -350,10 +437,17 @@ class _GameScreenState extends State<GameScreen>
             child: Text('Stay', style: TextStyle(color: Colors.white.withOpacity(0.4))),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               _socket?.emit('leaveRoom', {'roomCode': widget.roomCode});
+              final prefs = await SharedPreferences.getInstance();
+              prefs.remove('activeRoomCode');
+              prefs.remove('grid_${widget.roomCode}');
+              prefs.remove('questions_${widget.roomCode}');
               Navigator.pop(context); // close dialog
-              Navigator.pop(context); // go back
+              Navigator.pushReplacementNamed(
+                context, 
+                widget.isAdmin ? AppRoutes.adminDashboard : AppRoutes.studentDashboard
+              );
             },
             child: Text('Exit', style: TextStyle(color: AppColors.neonRed, fontWeight: FontWeight.w800)),
           ),
@@ -367,7 +461,7 @@ class _GameScreenState extends State<GameScreen>
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        backgroundColor: AppColors.bgCard,
+        backgroundColor: const Color(0xFF131022),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: AppColors.neonPurple.withOpacity(0.3)),
@@ -377,7 +471,7 @@ class _GameScreenState extends State<GameScreen>
         content: Text(msg, style: const TextStyle(color: Colors.white60)),
         actions: [
           TextButton(onPressed: onOk,
-              child: Text('OK', style: TextStyle(color: AppColors.neonPurple))),
+              child: const Text('OK', style: TextStyle(color: AppColors.neonPurple))),
         ],
       ),
     );
@@ -410,11 +504,23 @@ class _GameScreenState extends State<GameScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgDeep,
+      key: _scaffoldKey,
+      backgroundColor: const Color(0xFF07050A),
+      drawer: _buildDrawer(),
       body: Stack(
         children: [
-          _CyberParticles(controller: _particleCtrl),
-          const _CyberGrid(),
+          // Background Image with Blend
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.4,
+              child: Image.network(
+                'https://res.cloudinary.com/dvjefysfi/image/upload/v1781769261/Gemini_Generated_Image_cpwarscpwarscpwa_xdv10b.png',
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.screen,
+              ),
+            ),
+          ),
+          
           SafeArea(
             child: Column(
               children: [
@@ -426,8 +532,22 @@ class _GameScreenState extends State<GameScreen>
                       ? _buildRanksTab()
                       : _buildMasterKeyTab(),
                 ),
-                _buildBottomNav(),
               ],
+            ),
+          ),
+          // Confetti overlay
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConfettiWidget(
+              confettiController: _confettiController,
+              blastDirectionality: BlastDirectionality.explosive,
+              shouldLoop: false,
+              colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
+              maxBlastForce: 100,
+              minBlastForce: 80,
+              emissionFrequency: 0.05,
+              numberOfParticles: 50,
+              gravity: 0.1,
             ),
           ),
         ],
@@ -437,237 +557,134 @@ class _GameScreenState extends State<GameScreen>
 
   // ── HEADER ───────────────────────────────────────────────
   Widget _buildHeader() {
-    final isAdminRole = widget.isAdmin;
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.bgCard.withOpacity(0.9),
-        border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.06)),
-        ),
-      ),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Question line
+          // Left side: Menu button + Live badge
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Live badge
+              IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white, size: 28),
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: AppColors.neonPurple.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.neonPurple.withOpacity(0.4)),
+                  color: const Color(0xFF131022).withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10)
+                  ],
                 ),
                 child: Row(
                   children: [
                     AnimatedBuilder(
                       animation: _timerPulseCtrl,
                       builder: (_, __) => Container(
-                        width: 5, height: 5,
+                        width: 8, height: 8,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: AppColors.neonPurple.withOpacity(0.5 + 0.5 * _timerPulseCtrl.value),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 8),
                     const Text('LIVE ARENA',
                       style: TextStyle(
-                        color: AppColors.neonPurple,
-                        fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 1.5,
+                        color: Colors.white70,
+                        fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5,
                       ),
                     ),
                   ],
                 ),
               ),
-
-              const Spacer(),
-
-              // Q counter
-              Text(
-                'Q $_currentSerial / 25',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.3),
-                  fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1,
-                ),
-              ),
             ],
           ),
 
-          const SizedBox(height: 10),
+          // Center: Question Area
+          Expanded(
+            child: _buildQuestionArea(),
+          ),
 
-          // Question text
-          if (_currentQ != null)
-            AnimatedOpacity(
-              opacity: _questionChanging ? 0.3 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 6,
-                children: [
-                  const Text('FIND THE',
-                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 16),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: (_currentType == 'synonym'
-                          ? AppColors.neonCyan
-                          : AppColors.neonPurple).withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _currentType.toUpperCase(),
-                      style: TextStyle(
-                        color: _currentType == 'synonym'
-                            ? AppColors.neonCyan
-                            : AppColors.neonPurple,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  const Text('OF',
-                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 16),
-                  ),
-                  ShaderMask(
-                    shaderCallback: (b) => const LinearGradient(
-                      colors: [Colors.white, Color(0xFFCCCCCC)],
-                    ).createShader(b),
-                    child: Text(
-                      _currentWord.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                        decoration: TextDecoration.underline,
-                        decorationColor: AppColors.neonPurple,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Text(
-              'DECRYPTING GRID...',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.3),
-                fontWeight: FontWeight.w900,
-                fontSize: 15,
-                letterSpacing: 2,
-              ),
-            ),
-
-          // Hint banner
-          if (_hintData != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFC107).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFFFC107).withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.lightbulb_outline_rounded,
-                      color: Color(0xFFFFC107), size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '"$_hintData"',
-                      style: const TextStyle(
-                        color: Color(0xFFFFF9C4),
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 10),
-
-          // Stats row
-          Row(
+          // Right side: Quick Stats Row (Time, Rank, XP, Hint)
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              // Timer
               _buildStatChip(
                 label: 'TIME',
                 value: _formatTime(_timeLeft),
                 color: _timeLeft <= 5 ? AppColors.neonRed : Colors.white,
                 pulse: _timeLeft <= 5,
+                bgColor: Colors.white.withOpacity(0.05),
               ),
-              const SizedBox(width: 8),
-
-              if (!isAdminRole) ...[
-                // Rank
+              if (!widget.isAdmin) ...[
+                const SizedBox(width: 6),
                 _buildStatChip(
                   label: 'RANK',
                   value: _myRankDisplay,
-                  color: AppColors.neonCyan,
+                  color: Colors.blueAccent,
+                  bgColor: Colors.blueAccent.withOpacity(0.1),
+                  borderColor: Colors.blueAccent.withOpacity(0.2),
                 ),
-                const SizedBox(width: 8),
-
-                // Score
+                const SizedBox(width: 6),
                 _buildStatChip(
-                  label: 'XP',
+                  label: 'TOTAL XP',
                   value: _score.toStringAsFixed(0),
                   color: AppColors.neonPurple,
+                  bgColor: AppColors.neonPurple.withOpacity(0.1),
+                  borderColor: AppColors.neonPurple.withOpacity(0.2),
                 ),
-                const SizedBox(width: 8),
-
-                // Hint button
+                const SizedBox(width: 6),
                 GestureDetector(
                   onTap: _handleHint,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: (_hintsLeft > 0 && _hintData == null)
-                          ? const Color(0xFFFFC107).withOpacity(0.1)
-                          : Colors.white.withOpacity(0.04),
-                      borderRadius: BorderRadius.circular(10),
+                      color: (_hintsLeft > 0 && _hintData == null && !_isLocked)
+                          ? Colors.amber.withOpacity(0.1)
+                          : Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: (_hintsLeft > 0 && _hintData == null)
-                            ? const Color(0xFFFFC107).withOpacity(0.4)
-                            : Colors.white.withOpacity(0.08),
+                        color: (_hintsLeft > 0 && _hintData == null && !_isLocked)
+                            ? Colors.amber.withOpacity(0.3)
+                            : Colors.white.withOpacity(0.1),
                       ),
                     ),
                     child: Column(
                       children: [
                         Text('HINT',
                           style: TextStyle(
-                            color: (_hintsLeft > 0 && _hintData == null)
-                                ? const Color(0xFFFFC107)
+                            color: (_hintsLeft > 0 && _hintData == null && !_isLocked)
+                                ? Colors.amber
                                 : Colors.white30,
-                            fontSize: 7,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
                             letterSpacing: 1,
                           ),
                         ),
                         Row(
                           children: [
                             Icon(Icons.lightbulb_outline_rounded,
-                              color: (_hintsLeft > 0 && _hintData == null)
-                                  ? const Color(0xFFFFC107)
+                              color: (_hintsLeft > 0 && _hintData == null && !_isLocked)
+                                  ? Colors.amber
                                   : Colors.white30,
-                              size: 12,
+                              size: 14,
                             ),
                             const SizedBox(width: 2),
                             Text('$_hintsLeft',
                               style: TextStyle(
-                                color: (_hintsLeft > 0 && _hintData == null)
-                                    ? const Color(0xFFFFC107)
+                                color: (_hintsLeft > 0 && _hintData == null && !_isLocked)
+                                    ? Colors.amber
                                     : Colors.white30,
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
@@ -685,25 +702,173 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  // ── QUESTION AREA ─────────────────────────────────────────
+  Widget _buildQuestionArea() {
+    return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF131022).withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(0.05)),
+                  ),
+                  child: Text(
+                    'Q $_currentSerial/25',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_currentQ != null)
+                  AnimatedOpacity(
+                    opacity: _questionChanging ? 0.3 : 1.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          const Text('FIND',
+                            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 1),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: (_currentType == 'synonym'
+                                  ? AppColors.neonCyan
+                                  : AppColors.neonPurple).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _currentType.toUpperCase(),
+                              style: TextStyle(
+                                color: _currentType == 'synonym'
+                                    ? AppColors.neonCyan
+                                    : AppColors.neonPurple,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                          ),
+                          const Text('OF',
+                            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 1),
+                          ),
+                          Container(
+                            decoration: const BoxDecoration(
+                              border: Border(bottom: BorderSide(color: AppColors.neonPurple, width: 2)),
+                            ),
+                            padding: const EdgeInsets.only(bottom: 2, left: 4, right: 4),
+                            child: ShaderMask(
+                              shaderCallback: (b) => const LinearGradient(
+                                colors: [Colors.white, Color(0xFFCCCCCC)],
+                              ).createShader(b),
+                              child: Text(
+                                _currentWord.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 24,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Text(
+                    'DECRYPTING GRID...',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.5),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      letterSpacing: 4,
+                    ),
+                  ),
+
+                // Hint banner
+                if (_hintData != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.tips_and_updates,
+                            color: Colors.amber, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('DECRYPTED INTEL',
+                                style: TextStyle(
+                                  color: Colors.amber,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '"$_hintData"',
+                                style: const TextStyle(
+                                  color: Color(0xFFFFF9C4),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+  }
+
   Widget _buildStatChip({
     required String label,
     required String value,
     required Color color,
+    Color? bgColor,
+    Color? borderColor,
     bool pulse = false,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.25)),
+        color: bgColor ?? color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor ?? color.withOpacity(0.2)),
       ),
       child: Column(
         children: [
           Text(label,
             style: TextStyle(
-              color: color.withOpacity(0.6),
-              fontSize: 7, fontWeight: FontWeight.w800, letterSpacing: 1,
+              color: color.withOpacity(0.8),
+              fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 1,
             ),
           ),
           pulse
@@ -712,12 +877,12 @@ class _GameScreenState extends State<GameScreen>
             builder: (_, __) => Text(value,
               style: TextStyle(
                 color: color.withOpacity(0.6 + 0.4 * _timerPulseCtrl.value),
-                fontSize: 15, fontWeight: FontWeight.w900,
+                fontSize: 18, fontWeight: FontWeight.w900,
               ),
             ),
           )
               : Text(value,
-            style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.w900),
+            style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900),
           ),
         ],
       ),
@@ -726,14 +891,22 @@ class _GameScreenState extends State<GameScreen>
 
   // ── ARENA TAB ────────────────────────────────────────────
   Widget _buildArenaTab() {
+    return Column(
+      children: [
+        Expanded(child: _buildGrid()),
+      ],
+    );
+  }
+
+  Widget _buildGrid() {
     if (_grid.isEmpty) {
       return Center(
         child: Text('INITIALIZING BATTLEFIELD...',
           style: TextStyle(
-            color: Colors.white.withOpacity(0.3),
+            color: Colors.white.withOpacity(0.5),
             fontWeight: FontWeight.w900,
-            letterSpacing: 2,
-            fontSize: 12,
+            letterSpacing: 4,
+            fontSize: 14,
           ),
         ),
       );
@@ -743,16 +916,21 @@ class _GameScreenState extends State<GameScreen>
       opacity: _gridVisible ? 1.0 : 0.0,
       duration: const Duration(milliseconds: 150),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 5,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-            childAspectRatio: 1.1,
-          ),
-          itemCount: _grid.length,
-          itemBuilder: (_, i) => _buildCell(_grid[i]),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return GridView.builder(
+              physics: const BouncingScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 5,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: (constraints.maxWidth / 5) / ((constraints.maxHeight - 32) / 5),
+              ),
+              itemCount: _grid.length,
+              itemBuilder: (_, i) => _buildCell(_grid[i]),
+            );
+          }
         ),
       ),
     );
@@ -761,552 +939,455 @@ class _GameScreenState extends State<GameScreen>
   Widget _buildCell(GridCell cell) {
     final state = _cellStates[cell.cellId] ?? CellState.idle;
     final isAdminRole = widget.isAdmin;
-
-    Color bgColor;
-    Color borderColor;
-    Color textColor;
     bool canTap = !_isLocked && !isAdminRole && state == CellState.idle;
 
-    switch (state) {
-      case CellState.correct:
-        bgColor     = AppColors.neonGreen.withOpacity(0.15);
-        borderColor = AppColors.neonGreen.withOpacity(0.6);
-        textColor   = AppColors.neonGreen;
-        canTap      = false;
-        break;
-      case CellState.adminCorrect:
-        bgColor     = AppColors.neonGreen.withOpacity(0.08);
-        borderColor = AppColors.neonGreen.withOpacity(0.4);
-        textColor   = AppColors.neonGreen.withOpacity(0.8);
-        canTap      = false;
-        break;
-      case CellState.wrong:
-        bgColor     = AppColors.neonRed.withOpacity(0.15);
-        borderColor = AppColors.neonRed.withOpacity(0.6);
-        textColor   = AppColors.neonRed;
-        canTap      = false;
-        break;
-      case CellState.locked:
-      case CellState.idle:
-      default:
-        if (_isLocked || isAdminRole) {
-          bgColor     = AppColors.bgDeep.withOpacity(0.8);
-          borderColor = Colors.white.withOpacity(0.05);
-          textColor   = Colors.white.withOpacity(0.25);
-        } else {
-          bgColor     = AppColors.bgCard.withOpacity(0.85);
-          borderColor = Colors.white.withOpacity(0.1);
-          textColor   = Colors.white.withOpacity(0.85);
-        }
+    // Default styles (React match)
+    Color bgColor = const Color(0xFF131022).withOpacity(0.8);
+    Color borderColor = Colors.white.withOpacity(0.1);
+    Color textColor = Colors.white70;
+    double scale = 1.0;
+    List<BoxShadow> shadow = [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0,4))];
+
+    if (state == CellState.correct) {
+      bgColor = Colors.teal.shade900.withOpacity(0.6);
+      borderColor = Colors.tealAccent.withOpacity(0.5);
+      textColor = Colors.tealAccent;
+      scale = 1.05;
+      shadow = [BoxShadow(color: Colors.teal.withOpacity(0.4), blurRadius: 15)];
+    } else if (state == CellState.adminCorrect) {
+      bgColor = Colors.teal.shade900.withOpacity(0.3);
+      borderColor = Colors.teal.shade600.withOpacity(0.5);
+      textColor = Colors.tealAccent;
+      scale = 1.05;
+    } else if (state == CellState.wrong) {
+      bgColor = Colors.red.shade900.withOpacity(0.6);
+      borderColor = Colors.redAccent.withOpacity(0.5);
+      textColor = Colors.red.shade200;
+      shadow = [BoxShadow(color: Colors.red.withOpacity(0.4), blurRadius: 15)];
+    } else if ((_isLocked || isAdminRole) && state == CellState.idle) {
+      bgColor = const Color(0xFF0B0914).withOpacity(0.8);
+      borderColor = Colors.white.withOpacity(0.05);
+      textColor = Colors.white30;
+      shadow = [];
     }
 
-    return GestureDetector(
-      onTap: canTap ? () => _handleCellTap(cell) : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor, width: 1.2),
-          boxShadow: state == CellState.correct
-              ? [BoxShadow(color: AppColors.neonGreen.withOpacity(0.3), blurRadius: 10)]
-              : state == CellState.wrong
-              ? [BoxShadow(color: AppColors.neonRed.withOpacity(0.3), blurRadius: 10)]
-              : [],
-        ),
-        child: Center(
-          child: Text(
-            cell.text,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w800,
-              fontSize: 10,
-              letterSpacing: 0.5,
-              height: 1.2,
+    Widget cellWidget = AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      transform: Matrix4.identity()..scale(scale),
+      transformAlignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: state == CellState.correct || state == CellState.wrong ? 2 : 1),
+        boxShadow: shadow,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: canTap ? () => _handleCellTap(cell) : null,
+          borderRadius: BorderRadius.circular(16),
+          splashColor: AppColors.neonPurple.withOpacity(0.3),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(4.0),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  cell.text.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
+
+    // Apply shake animation if wrong
+    if (state == CellState.wrong) {
+      cellWidget = AnimatedBuilder(
+        animation: _shakeCtrl,
+        builder: (ctx, child) {
+          final sine = math.sin(_shakeCtrl.value * math.pi * 3);
+          return Transform.translate(
+            offset: Offset(sine * 8, 0),
+            child: child,
+          );
+        },
+        child: cellWidget,
+      );
+    }
+
+    return cellWidget;
   }
 
   // ── RANKS TAB ────────────────────────────────────────────
   Widget _buildRanksTab() {
-    final myRank = _myRankIndex >= 0 ? _liveRanks[_myRankIndex] : null;
-
     return Container(
-      margin: const EdgeInsets.all(14),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: AppColors.bgCard.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        color: const Color(0xFF131022).withOpacity(0.8),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ShaderMask(
             shaderCallback: (b) => const LinearGradient(
-              colors: [AppColors.neonCyan, Color(0xFF3B82F6)],
+              colors: [Colors.cyanAccent, Colors.blue],
             ).createShader(b),
             child: const Text('LIVE RANKINGS',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
-                letterSpacing: 2,
-              ),
+              style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 2),
             ),
           ),
-
-          const SizedBox(height: 12),
-
-          // My rank card
-          if (myRank != null && !widget.isAdmin) ...[
+          const SizedBox(height: 24),
+          
+          if (!widget.isAdmin && _myRankIndex >= 0)
             Container(
-              padding: const EdgeInsets.all(14),
+              margin: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.neonPurple.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
+                color: AppColors.neonPurple.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: AppColors.neonPurple.withOpacity(0.3)),
+                boxShadow: [BoxShadow(color: AppColors.neonPurple.withOpacity(0.2), blurRadius: 20)],
               ),
               child: Row(
                 children: [
-                  Text('#${_myRankIndex + 1}',
-                    style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w900, fontSize: 22,
+                  Text('#${_myRankIndex + 1}', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
+                  const SizedBox(width: 16),
+                  Container(
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withOpacity(0.2)),
+                      image: DecorationImage(image: NetworkImage(_liveRanks[_myRankIndex]['avatar'] ?? _avatar), fit: BoxFit.cover),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  _buildAvatar(myRank['avatar'] as String?),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Text(myRank['name'] as String? ?? _userName,
-                              style: const TextStyle(
-                                color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.neonPurple.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text('YOU',
-                                style: TextStyle(
-                                  color: AppColors.neonPurple, fontSize: 8, fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
+                        RichText(
+                          text: TextSpan(
+                            text: (_liveRanks[_myRankIndex]['name'] ?? _userName).toUpperCase(),
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1),
+                            children: const [
+                              TextSpan(text: ' (YOU)', style: TextStyle(color: AppColors.neonPurple, fontSize: 12))
+                            ]
+                          )
                         ),
-                        Text('Current Position',
-                          style: TextStyle(
-                            color: AppColors.neonPurple.withOpacity(0.6),
-                            fontSize: 10, fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        const Text('CURRENT POSITION', style: TextStyle(color: AppColors.neonPurple, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
                       ],
                     ),
                   ),
-                  Text('${(myRank['points'] as num?)?.toStringAsFixed(0) ?? '0'} XP',
-                    style: const TextStyle(
-                      color: AppColors.neonPurple, fontWeight: FontWeight.w900, fontSize: 16,
+                  Text('${(_liveRanks[_myRankIndex]['points'] ?? 0).toStringAsFixed(0)} XP',
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
+            ),
+
+          Expanded(
+            child: _liveRanks.isEmpty
+                ? const Center(
+                    child: Text('WAITING FOR PLAYERS TO EARN XP...',
+                      style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 2),
+                    ),
+                  )
+                : ListView.separated(
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: _liveRanks.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (ctx, i) {
+                      final p = _liveRanks[i];
+                      final isOnline = p['isOnline'] ?? true;
+                      final isMe = p['userId'] == _userId;
+
+                      Color rankColor = Colors.white54;
+                      if (i == 0) rankColor = Colors.amber;
+                      else if (i == 1) rankColor = Colors.white;
+                      else if (i == 2) rankColor = Colors.orangeAccent;
+
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isMe ? AppColors.neonPurple.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: !isOnline ? Colors.red.withOpacity(0.3) 
+                                 : isMe ? AppColors.neonPurple.withOpacity(0.5) 
+                                 : Colors.white.withOpacity(0.1),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Text('#${i + 1}',
+                              style: TextStyle(
+                                color: rankColor, fontSize: 24, fontWeight: FontWeight.w900,
+                                shadows: i == 0 ? [BoxShadow(color: Colors.amber.withOpacity(0.5), blurRadius: 10)] : null,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            ColorFiltered(
+                              colorFilter: ColorFilter.mode(
+                                !isOnline ? Colors.grey : Colors.transparent, 
+                                BlendMode.saturation
+                              ),
+                              child: Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: !isOnline ? Colors.red : Colors.white.withOpacity(0.1)),
+                                  image: DecorationImage(image: NetworkImage(p['avatar']), fit: BoxFit.cover),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  RichText(
+                                    text: TextSpan(
+                                      text: p['name'].toString().toUpperCase(),
+                                      style: TextStyle(
+                                        color: !isOnline ? Colors.white54 : Colors.white, 
+                                        fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1,
+                                        decoration: !isOnline ? TextDecoration.lineThrough : TextDecoration.none,
+                                      ),
+                                      children: [
+                                        if (isMe) const TextSpan(text: ' (YOU)', style: TextStyle(color: AppColors.neonPurple, fontSize: 10, decoration: TextDecoration.none))
+                                      ]
+                                    )
+                                  ),
+                                  if (!isOnline)
+                                    const Text('OFFLINE', style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                                ],
+                              ),
+                            ),
+                            Text('${(p['points'] ?? 0).toStringAsFixed(0)} XP',
+                              style: const TextStyle(color: AppColors.neonPurple, fontSize: 20, fontWeight: FontWeight.w900),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── MASTER KEY TAB ───────────────────────────────────────
+  Widget _buildMasterKeyTab() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131022).withOpacity(0.8),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('MASTER KEY',
+            style: TextStyle(color: Colors.tealAccent, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 2),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: _fullQuestions.isEmpty
+                ? const Center(
+                    child: Text('DECRYPTING MASTER KEY DATA...',
+                      style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 2),
+                    ),
+                  )
+                : ListView.separated(
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: _fullQuestions.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (ctx, i) {
+                      final q = _fullQuestions[i];
+                      final type = q['type'] ?? q['question']?['type'] ?? 'Unknown';
+                      final word = q['word'] ?? q['question']?['word'] ?? 'Unknown';
+                      final answer = q['answer'] ?? q['question']?['answer'] ?? 'Unknown';
+                      final serial = q['serialNo'] ?? (i + 1);
+
+                      return Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black26,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text('Q$serial', style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w900)),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: RichText(
+                                text: TextSpan(
+                                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w700),
+                                  children: [
+                                    const TextSpan(text: 'Find the '),
+                                    TextSpan(text: type, style: TextStyle(color: type == 'synonym' ? AppColors.neonCyan : AppColors.neonPurple)),
+                                    const TextSpan(text: ' of '),
+                                    TextSpan(text: word.toString().toUpperCase(), style: const TextStyle(color: Colors.white, decoration: TextDecoration.underline, decorationColor: Colors.white24)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.teal.shade900.withOpacity(0.4),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.teal.shade600.withOpacity(0.5)),
+                                boxShadow: [BoxShadow(color: Colors.teal.withOpacity(0.2), blurRadius: 10)],
+                              ),
+                              child: Text(answer.toString().toUpperCase(), style: const TextStyle(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── DRAWER (SIDEBAR) ────────────────────────────────────
+  Widget _buildDrawer() {
+    return Drawer(
+      backgroundColor: const Color(0xFF0B0914),
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Profile Section
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      image: DecorationImage(image: NetworkImage(_avatar), fit: BoxFit.cover),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_userName.toUpperCase(),
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                        ),
+                        Text(widget.isAdmin ? 'SUPERADMIN' : 'PLAYER',
+                          style: const TextStyle(color: AppColors.neonCyan, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-          ],
-
-          // All ranks
-          Expanded(
-            child: _liveRanks.isEmpty
-                ? Center(
-              child: Text('Waiting for XP...',
-                style: TextStyle(color: Colors.white.withOpacity(0.3),
-                    fontWeight: FontWeight.w700),
-              ),
-            )
-                : ListView.separated(
-              itemCount: _liveRanks.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) {
-                final p = _liveRanks[i];
-                final isMe = p['userId'] == _userId;
-                final isOffline = p['isOnline'] == false;
-
-                final rankColor = i == 0
-                    ? const Color(0xFFFFC107)
-                    : i == 1
-                    ? Colors.white60
-                    : i == 2
-                    ? const Color(0xFFCD7F32)
-                    : Colors.white30;
-
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isMe
-                        ? AppColors.neonPurple.withOpacity(0.08)
-                        : Colors.white.withOpacity(0.03),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isOffline
-                          ? AppColors.neonRed.withOpacity(0.2)
-                          : isMe
-                          ? AppColors.neonPurple.withOpacity(0.3)
-                          : Colors.white.withOpacity(0.07),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Text('#${i + 1}',
-                        style: TextStyle(
-                          color: rankColor, fontWeight: FontWeight.w900, fontSize: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _buildAvatar(p['avatar'] as String?,
-                          grayscale: isOffline),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          p['name'] as String? ?? 'Player',
-                          style: TextStyle(
-                            color: isOffline ? Colors.white30 : Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            decoration: isOffline ? TextDecoration.lineThrough : null,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '${(p['points'] as num?)?.toStringAsFixed(0) ?? '0'} XP',
-                        style: const TextStyle(
-                          color: AppColors.neonPurple,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── MASTER KEY TAB (admin) ───────────────────────────────
-  Widget _buildMasterKeyTab() {
-    return Container(
-      margin: const EdgeInsets.all(14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bgCard.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('MASTER KEY',
-            style: TextStyle(
-              color: AppColors.neonGreen,
-              fontWeight: FontWeight.w900,
-              fontSize: 18,
-              letterSpacing: 2,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Expanded(
-            child: _fullQuestions.isEmpty
-                ? Center(
-              child: Text('Decrypting Master Key...',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.3),
-                  fontWeight: FontWeight.w700,
+            const SizedBox(height: 16),
+            // Navigation Links
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  children: [
+                    _buildDrawerItem(0, Icons.sports_esports, 'ARENA', AppColors.neonPurple),
+                    _buildDrawerItem(1, Icons.leaderboard, 'RANKS', AppColors.neonCyan),
+                    if (widget.isAdmin)
+                      _buildDrawerItem(2, Icons.fact_check, 'MASTER KEY', Colors.tealAccent),
+                  ],
                 ),
               ),
-            )
-                : ListView.separated(
-              itemCount: _fullQuestions.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) {
-                final q = _fullQuestions[i];
-                final type   = q['type']   ?? q['question']?['type']   ?? '?';
-                final word   = q['word']   ?? q['question']?['word']   ?? '?';
-                final answer = q['answer'] ?? q['question']?['answer'] ?? '?';
-                final serial = q['serialNo'] ?? i + 1;
-
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.03),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.07)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text('Q$serial',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: RichText(
-                          text: TextSpan(
-                            style: const TextStyle(fontSize: 12),
-                            children: [
-                              const TextSpan(text: 'Find the ',
-                                  style: TextStyle(color: Colors.white60)),
-                              TextSpan(
-                                text: type,
-                                style: TextStyle(
-                                  color: type == 'synonym'
-                                      ? AppColors.neonCyan
-                                      : AppColors.neonPurple,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const TextSpan(text: ' of ',
-                                  style: TextStyle(color: Colors.white60)),
-                              TextSpan(
-                                text: word.toString().toUpperCase(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.neonGreen.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: AppColors.neonGreen.withOpacity(0.3)),
-                        ),
-                        child: Text(answer.toString().toUpperCase(),
-                          style: TextStyle(
-                            color: AppColors.neonGreen,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── BOTTOM NAV ───────────────────────────────────────────
-  Widget _buildBottomNav() {
-    final tabs = [
-      {'icon': Icons.sports_esports_rounded, 'label': 'ARENA'},
-      {'icon': Icons.leaderboard_rounded,    'label': 'RANKS'},
-      if (widget.isAdmin)
-        {'icon': Icons.vpn_key_rounded, 'label': 'MASTER KEY'},
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
-      ),
-      child: Row(
-        children: [
-          // Exit button
-          GestureDetector(
-            onTap: _handleExit,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Icon(Icons.logout_rounded,
-                  color: AppColors.neonRed, size: 22),
-            ),
-          ),
-
-          // Tabs
-          ...tabs.asMap().entries.map((entry) {
-            final i     = entry.key;
-            final tab   = entry.value;
-            final isAct = _activeTab == i;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _activeTab = i),
+            
+            // Exit Match Button
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: InkWell(
+                onTap: _handleExit,
+                borderRadius: BorderRadius.circular(16),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(
-                        color: isAct ? AppColors.neonPurple : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
+                    color: AppColors.neonRed.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.neonRed.withOpacity(0.3)),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(tab['icon'] as IconData,
-                        color: isAct ? AppColors.neonPurple : Colors.white30,
-                        size: 20,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(tab['label'] as String,
-                        style: TextStyle(
-                          color: isAct ? AppColors.neonPurple : Colors.white30,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
+                      Icon(Icons.logout, color: AppColors.neonRed, size: 20),
+                      SizedBox(width: 12),
+                      Text('EXIT MATCH', style: TextStyle(color: AppColors.neonRed, fontWeight: FontWeight.w900, letterSpacing: 1, fontSize: 14)),
                     ],
                   ),
                 ),
               ),
-            );
-          }),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // ── Avatar helper ─────────────────────────────────────────
-  Widget _buildAvatar(String? url, {bool grayscale = false}) {
-    Widget img = Container(
-      width: 36, height: 36,
-      decoration: BoxDecoration(
-        color: AppColors.bgSurface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: url != null && url.isNotEmpty
-          ? ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: Image.network(url, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Icon(
-                Icons.person_rounded, color: Colors.white30, size: 20)),
-      )
-          : const Icon(Icons.person_rounded, color: Colors.white30, size: 20),
-    );
-
-    if (grayscale) {
-      img = ColorFiltered(
-        colorFilter: const ColorFilter.matrix([
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0,      0,      0,      1, 0,
-        ]),
-        child: Opacity(opacity: 0.4, child: img),
-      );
-    }
-
-    return img;
-  }
-}
-
-// ============================================================
-// Background Widgets
-// ============================================================
-class _CyberParticles extends StatelessWidget {
-  final AnimationController controller;
-  const _CyberParticles({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (_, __) => CustomPaint(
-        painter: _ParticlePainter(controller.value),
-        size: MediaQuery.of(context).size,
+  Widget _buildDrawerItem(int index, IconData icon, String label, Color accent) {
+    final active = _activeTab == index;
+    return InkWell(
+      onTap: () {
+        setState(() => _activeTab = index);
+        Navigator.pop(context); // close drawer
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          gradient: active ? LinearGradient(colors: [accent.withOpacity(0.2), accent.withOpacity(0.05)]) : null,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: active ? accent.withOpacity(0.5) : Colors.transparent),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: active ? accent : Colors.white54, size: 24),
+            const SizedBox(width: 16),
+            Text(label, style: TextStyle(color: active ? Colors.white : Colors.white54, fontWeight: FontWeight.w900, letterSpacing: 1, fontSize: 14)),
+          ],
+        ),
       ),
     );
   }
-}
-
-class _ParticlePainter extends CustomPainter {
-  final double t;
-  _ParticlePainter(this.t);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width == 0 || size.height == 0) return;
-    final rng = math.Random(42);
-    for (int i = 0; i < 25; i++) {
-      final x     = rng.nextDouble() * size.width;
-      final baseY = rng.nextDouble() * size.height;
-      final speed = 0.3 + rng.nextDouble() * 1.0;
-      final y     = (baseY - t * size.height * speed) % size.height;
-      final rad   = 1.0 + rng.nextDouble() * 2.0;
-      final op    = 0.06 + rng.nextDouble() * 0.18;
-      canvas.drawCircle(
-        Offset(x, y), rad,
-        Paint()..color = (rng.nextBool() ? AppColors.neonCyan : AppColors.neonPurple)
-            .withOpacity(op),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ParticlePainter o) => o.t != t;
-}
-
-class _CyberGrid extends StatelessWidget {
-  const _CyberGrid();
-
-  @override
-  Widget build(BuildContext context) => CustomPaint(
-    painter: _GridPainter(), size: MediaQuery.of(context).size,
-  );
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = AppColors.neonPurple.withOpacity(0.03)
-      ..strokeWidth = 1;
-    for (double x = 0; x < size.width; x += 38) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
-    }
-    for (double y = 0; y < size.height; y += 38) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter o) => false;
 }

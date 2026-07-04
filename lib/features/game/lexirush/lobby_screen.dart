@@ -52,6 +52,8 @@ class _LobbyScreenState extends State<LobbyScreen>
   final List<String> _sectionOptions  = ['A','B','C','D','E'];
   final List<String> _semesterOptions = ['1','2','3','4','5','6','7','8'];
 
+  bool _isDisposing = false;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +83,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   @override
   void dispose() {
+    _isDisposing = true;
     _socket?.disconnect();
     _socket?.dispose();
     _particleController.dispose();
@@ -133,6 +136,7 @@ class _LobbyScreenState extends State<LobbyScreen>
       'https://tambola-67o6.onrender.com',   // Same backend URL as ApiClient
       IO.OptionBuilder()
           .setTransports(['websocket'])
+          .enableForceNew()
           .disableAutoConnect()
           .build(),
     );
@@ -154,7 +158,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     _socket!.onConnectError((err) {
       debugPrint('Socket connect error: $err');
-      if (mounted) {
+      if (mounted && !_isDisposing) {
         setState(() => _isLoading = false);
         _showSnack('Connection failed: $err', color: AppColors.neonRed);
       }
@@ -162,16 +166,14 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     _socket!.onDisconnect((_) {
       debugPrint('Socket disconnected');
-      if (mounted) {
+      if (mounted && !_isDisposing) {
         setState(() => _isLoading = false);
       }
     });
 
     // ── roomData — main state update ──
     _socket!.on('roomData', (data) {
-      debugPrint('==== SOCKET EVENT [roomData] ====');
-      debugPrint('Payload: $data');
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       final d = Map<String, dynamic>.from(data as Map);
       setState(() {
         _roomData  = d;
@@ -206,15 +208,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     });
 
     _socket!.on('gameStarted', (data) {
-      debugPrint('==== SOCKET EVENT [gameStarted] ====');
-      debugPrint('Payload: $data');
-      if (!mounted) return;
-      // Convert socket Map<dynamic,dynamic> to Map<String,dynamic>
-      final rawData = data is List ? data.first : data;
-      Map<String, dynamic> safeData = {};
-      try {
-        safeData = Map<String, dynamic>.from(rawData as Map);
-      } catch (_) {}
+      if (!mounted || _isDisposing) return;
       Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
         'roomCode': widget.roomCode,
         'isAdmin': widget.isAdmin,
@@ -224,9 +218,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── gamePrepared — PDF ready ──
     _socket!.on('gamePrepared', (data) async {
-      debugPrint('==== SOCKET EVENT [gamePrepared] ====');
-      debugPrint('Payload: $data');
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       setState(() => _isGeneratingPDF = false);
       _showSnack('PDF prepared! Generating document...', color: AppColors.neonGreen);
       
@@ -255,14 +247,14 @@ class _LobbyScreenState extends State<LobbyScreen>
     });
 
     _socket!.on('pdfError', (msg) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       setState(() => _isGeneratingPDF = false);
       _showSnack(msg.toString(), color: AppColors.neonRed);
     });
 
     // ── playerKicked ──
     _socket!.on('playerKicked', (kickedUserId) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       final myId = _currentUser?['id'] ?? '';
       if (kickedUserId == myId) {
         _showKickedDialog();
@@ -271,17 +263,14 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── roomClosed ──
     _socket!.on('roomClosed', (_) {
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       _showRoomClosedDialog();
     });
 
     // ── reconnectGame ──
     _socket!.on('reconnectGame', (data) {
-      debugPrint('==== SOCKET EVENT [reconnectGame] ====');
-      debugPrint('Payload: $data');
-      if (!mounted) return;
-      final rawData = data is List ? data.first : data;
-      final d = Map<String, dynamic>.from(rawData as Map);
+      if (!mounted || _isDisposing) return;
+      final d = Map<String, dynamic>.from(data as Map);
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -300,18 +289,14 @@ class _LobbyScreenState extends State<LobbyScreen>
 
     // ── pdfError ──
     _socket!.on('pdfError', (msg) {
-      debugPrint('==== SOCKET EVENT [pdfError] ====');
-      debugPrint('Message: $msg');
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       setState(() => _isGeneratingPDF = false);
       _showSnack(msg.toString(), color: AppColors.neonRed);
     });
 
     // ── error ──
     _socket!.on('error', (msg) {
-      debugPrint('==== SOCKET EVENT [error] ====');
-      debugPrint('Message: $msg');
-      if (!mounted) return;
+      if (!mounted || _isDisposing) return;
       setState(() {
         _isGeneratingPDF = false;
         _isLoading = false;
@@ -364,8 +349,20 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   void _handleGeneratePDF() {
     setState(() => _isGeneratingPDF = true);
-    _handleUpdateSettings();
-    _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
+    
+    // Add a slight delay to ensure socket buffer is clear
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted && !_isDisposing) {
+        _socket?.emit('prepareGame', {'roomCode': widget.roomCode.toUpperCase()});
+      }
+    });
+    
+    Future.delayed(const Duration(seconds: 45), () {
+      if (mounted && _isGeneratingPDF) {
+        setState(() => _isGeneratingPDF = false);
+        _showSnack('PDF Generation timed out. Please try again.', color: AppColors.neonRed);
+      }
+    });
   }
 
   void _handleStudentDownloadPDF() {
@@ -392,7 +389,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     await Clipboard.setData(ClipboardData(text: widget.roomCode));
     setState(() => _isCopied = true);
     await Future.delayed(const Duration(seconds: 2));
-    if (mounted) setState(() => _isCopied = false);
+    if (mounted && !_isDisposing) setState(() => _isCopied = false);
   }
 
   void _handleExitRoom() {
