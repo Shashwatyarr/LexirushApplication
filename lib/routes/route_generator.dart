@@ -39,7 +39,7 @@ class RouteGenerator {
         return MaterialPageRoute(builder: (_) => const AnalyticsScreen());
 
       case AppRoutes.gameModeDetail:
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           return MaterialPageRoute(
             builder: (_) => GameModeDetailScreen(
               gameMode: args['gameMode'] as String? ?? 'lexirush',
@@ -52,7 +52,7 @@ class RouteGenerator {
 
       // LexiRush
       case AppRoutes.lobby:
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           final roomCode = args['roomCode'] as String? ?? '';
           final isAdmin = args['isAdmin'] as bool? ?? false;
           return MaterialPageRoute(
@@ -65,10 +65,13 @@ class RouteGenerator {
         return _errorRoute('Invalid arguments for LobbyScreen');
 
       case AppRoutes.game:
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           final roomCode = args['roomCode'] as String? ?? '';
           final isAdmin = args['isAdmin'] as bool? ?? false;
-          final initialState = args['data'] as Map<String, dynamic>? ?? {};
+          final rawData = args['data'];
+final initialState = rawData is Map
+    ? Map<String, dynamic>.from(rawData)
+    : <String, dynamic>{};
           return MaterialPageRoute(
             builder: (_) => GameScreen(
               roomCode: roomCode,
@@ -81,7 +84,7 @@ class RouteGenerator {
 
       case AppRoutes.leaderboard:
       case AppRoutes.spellLeaderboard: // Since both use the same screen currently, or we can separate if needed
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           return MaterialPageRoute(
             builder: (_) => LeaderboardScreen(
               roomCode: args['roomCode'] as String? ?? '',
@@ -96,7 +99,7 @@ class RouteGenerator {
 
       // Spell Shooter
       case AppRoutes.spellLobby:
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           final roomCode = args['roomCode'] as String? ?? '';
           final isAdmin = args['isAdmin'] as bool? ?? false;
           return MaterialPageRoute(
@@ -109,10 +112,10 @@ class RouteGenerator {
         return _errorRoute('Invalid arguments for SpellLobbyScreen');
 
       case AppRoutes.spellGame:
-        if (args is Map<String, dynamic>) {
+        if (args is Map) {
           final roomCode = args['roomCode'] as String? ?? '';
           final fullQuestionData = args['fullQuestionData'] != null ? List<Map<String, dynamic>>.from(args['fullQuestionData']) : null;
-          final reconnectData = args['reconnectData'] as Map<String, dynamic>?;
+          final reconnectData = args['reconnectData'] != null ? Map<String, dynamic>.from(args['reconnectData'] as Map) : null;
           return MaterialPageRoute(
             builder: (_) => SpellGameScreen(
               roomCode: roomCode,

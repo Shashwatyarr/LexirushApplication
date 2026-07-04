@@ -98,6 +98,15 @@ class _CreateRoomScreenState extends State<CreateRoomScreen>
       final data = jsonDecode(res.body);
       if (data['success'] == true) {
         setState(() => _roomCode = data['roomCode'] as String);
+        
+        // Auto-navigate to lobby
+        if (_isLexi) {
+          Navigator.pushReplacementNamed(context, AppRoutes.lobby,
+              arguments: {'roomCode': _roomCode, 'isAdmin': true});
+        } else {
+          Navigator.pushReplacementNamed(context, AppRoutes.spellLobby,
+              arguments: {'roomCode': _roomCode, 'isAdmin': true});
+        }
       } else {
         _showSnack(data['message'] as String? ?? 'Failed to create room.', AppColors.neonRed);
       }

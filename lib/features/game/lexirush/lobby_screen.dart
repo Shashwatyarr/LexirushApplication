@@ -8,7 +8,6 @@ import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/util/pdf_generator.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/api_client.dart';
 import 'game_screen.dart';
@@ -213,7 +212,7 @@ class _LobbyScreenState extends State<LobbyScreen>
       Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
         'roomCode': widget.roomCode,
         'isAdmin': widget.isAdmin,
-        'data': data,
+        'data': safeData,
       });
     });
 
@@ -278,7 +277,11 @@ class _LobbyScreenState extends State<LobbyScreen>
           builder: (_) => GameScreen(
             roomCode: widget.roomCode,
             isAdmin: widget.isAdmin,
-            initialState: d,
+            initialState: {
+              'reconnectData': d,
+              'gridBase': d['gridBase'],
+              'fullQuestionData': d['fullQuestionData'],
+            },
           ),
         ),
       );
@@ -298,7 +301,13 @@ class _LobbyScreenState extends State<LobbyScreen>
         _isGeneratingPDF = false;
         _isLoading = false;
       });
-      _showSnack(msg.toString(), color: AppColors.neonRed);
+      final msgStr = msg.toString();
+      if (msgStr.toLowerCase().contains('not found') || msgStr.toLowerCase().contains('expired')) {
+         _showSnack(msgStr, color: AppColors.neonRed);
+         Navigator.pop(context);
+      } else {
+         _showSnack(msgStr, color: AppColors.neonRed);
+      }
     });
   }
 
