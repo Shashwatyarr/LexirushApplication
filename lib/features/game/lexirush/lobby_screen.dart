@@ -212,7 +212,7 @@ class _LobbyScreenState extends State<LobbyScreen>
       Navigator.pushReplacementNamed(context, AppRoutes.game, arguments: {
         'roomCode': widget.roomCode,
         'isAdmin': widget.isAdmin,
-        'data': safeData,
+        'data': data,
       });
     });
 

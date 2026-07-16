@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:confetti/confetti.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../game/lexirush/game_screen.dart';
 import '../../game/spell_shooter/spell_game_screen.dart';
@@ -34,7 +35,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     with TickerProviderStateMixin {
 
   late AnimationController _particleCtrl;
-  late AnimationController _celebrationCtrl;
+  late ConfettiController _confettiLeft;
+  late ConfettiController _confettiRight;
 
   IO.Socket? _socket;
 
@@ -51,9 +53,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       duration: const Duration(seconds: 6), vsync: this,
     )..repeat();
 
-    _celebrationCtrl = AnimationController(
-      duration: const Duration(seconds: 3), vsync: this,
-    )..forward();
+    _confettiLeft = ConfettiController(duration: const Duration(seconds: 3));
+    _confettiRight = ConfettiController(duration: const Duration(seconds: 3));
+
+    if (widget.leaderboard.isNotEmpty) {
+      _confettiLeft.play();
+      _confettiRight.play();
+    }
 
     _connectSocket();
   }
@@ -63,7 +69,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     _socket?.disconnect();
     _socket?.dispose();
     _particleCtrl.dispose();
-    _celebrationCtrl.dispose();
+    _confettiLeft.dispose();
+    _confettiRight.dispose();
     _timeLimitCtrl.dispose();
     super.dispose();
   }
@@ -190,6 +197,34 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 ),
                 _buildBottomActions(),
               ],
+            ),
+          ),
+
+          // Confetti
+          Align(
+            alignment: const Alignment(-0.8, -1.0),
+            child: ConfettiWidget(
+              confettiController: _confettiLeft,
+              blastDirection: math.pi / 4,
+              maxBlastForce: 20,
+              minBlastForce: 10,
+              emissionFrequency: 0.05,
+              numberOfParticles: 20,
+              gravity: 0.2,
+              colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
+            ),
+          ),
+          Align(
+            alignment: const Alignment(0.8, -1.0),
+            child: ConfettiWidget(
+              confettiController: _confettiRight,
+              blastDirection: 3 * math.pi / 4,
+              maxBlastForce: 20,
+              minBlastForce: 10,
+              emissionFrequency: 0.05,
+              numberOfParticles: 20,
+              gravity: 0.2,
+              colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
             ),
           ),
 
