@@ -60,9 +60,9 @@ class _GameModeDetailScreenState extends State<GameModeDetailScreen> with Ticker
       final roomData = data['room'];
       final joinedGameMode = (data['gameMode'] ??
           (roomData is Map ? roomData['gameMode'] : null) ??
-          'lexirush').toString();
+          widget.gameMode).toString().toLowerCase();
 
-      if (joinedGameMode == 'spell_shooter') {
+      if (joinedGameMode == 'spell_shooter' || joinedGameMode == 'spellshooter') {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
