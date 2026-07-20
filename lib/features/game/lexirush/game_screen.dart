@@ -340,26 +340,46 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // ── gameEnded (gameOver) ──
     _socket!.on('gameOver', (data) async {
       if (!mounted || _isDisposing) return;
-      final prefs = await SharedPreferences.getInstance();
-      prefs.remove('grid_${widget.roomCode}');
-      prefs.remove('questions_${widget.roomCode}');
-      final d = Map<String, dynamic>.from(data as Map);
-      
-      final leaderboard = List<Map<String, dynamic>>.from(
-        (d['leaderboard'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map)),
-      );
-      final questionStats = List<Map<String, dynamic>>.from(
-        (d['questionStats'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map)),
-      );
-      Navigator.pushReplacementNamed(context, AppRoutes.leaderboard, arguments: {
-        'roomCode': widget.roomCode,
-        'isAdmin': widget.isAdmin,
-        'leaderboard': leaderboard,
-        'roomAverage': (d['roomAverage'] as num?)?.toDouble() ?? 0,
-        'questionStats': questionStats,
-      });
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        prefs.remove('grid_${widget.roomCode}');
+        prefs.remove('questions_${widget.roomCode}');
+        
+        Map<String, dynamic> d = {};
+        if (data is Map) {
+          d = Map<String, dynamic>.from(data);
+        }
+        
+        final leaderboard = (d['leaderboard'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+            
+        final questionStats = (d['questionStats'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+            
+        double avg = 0.0;
+        if (d['roomAverage'] != null) {
+          avg = double.tryParse(d['roomAverage'].toString()) ?? 0.0;
+        }
+
+        Navigator.pushReplacementNamed(context, AppRoutes.leaderboard, arguments: {
+          'roomCode': widget.roomCode,
+          'isAdmin': widget.isAdmin,
+          'leaderboard': leaderboard,
+          'roomAverage': avg,
+          'questionStats': questionStats,
+        });
+      } catch (e, st) {
+        debugPrint('Error in gameOver: $e\n$st');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Transition error: $e'))
+          );
+        }
+      }
     });
 
     _socket!.on('error', (msg) {

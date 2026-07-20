@@ -89,9 +89,9 @@ final initialState = rawData is Map
             builder: (_) => LeaderboardScreen(
               roomCode: args['roomCode'] as String? ?? '',
               isAdmin: args['isAdmin'] as bool? ?? false,
-              leaderboard: args['leaderboard'] != null ? List<Map<String, dynamic>>.from(args['leaderboard']) : [],
+              leaderboard: args['leaderboard'] != null ? (args['leaderboard'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList() : [],
               roomAverage: (args['roomAverage'] as num?)?.toDouble() ?? 0.0,
-              questionStats: args['questionStats'] != null ? List<Map<String, dynamic>>.from(args['questionStats']) : [],
+              questionStats: args['questionStats'] != null ? (args['questionStats'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList() : [],
             ),
           );
         }

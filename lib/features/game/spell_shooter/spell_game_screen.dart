@@ -15,7 +15,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-// import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
@@ -51,7 +51,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
   IO.Socket? _socket;
   Timer? _timer;
-  // final FlutterTts _tts = FlutterTts();
+  final FlutterTts _tts = FlutterTts();
 
   late AnimationController _floatController;
   late AnimationController _confettiController;
@@ -77,6 +77,15 @@ class _SpellGameScreenState extends State<SpellGameScreen>
   bool _isLocked = false;
   String? _selectedAnswer;
   bool _isSpeaking = false;
+
+  int _parseInt(dynamic val, [int defaultVal = 0]) {
+    if (val is int) return val;
+    if (val is double) return val.toInt();
+    if (val != null) {
+      return int.tryParse(val.toString()) ?? double.tryParse(val.toString())?.toInt() ?? defaultVal;
+    }
+    return defaultVal;
+  }
 
   @override
   void initState() {
@@ -105,7 +114,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     _timer?.cancel();
     _floatController.dispose();
     _confettiController.dispose();
-    // _tts.stop();
+    _tts.stop();
     _socket?.disconnect();
     _socket?.dispose();
     super.dispose();
@@ -134,17 +143,17 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       _fullQuestions = widget.fullQuestionData!;
       final firstQ = _fullQuestions.first;
       _currentQuestion = firstQ;
-      _timeLeft = (firstQ['timeLimit'] as num?)?.toInt() ?? 7;
+      _timeLeft = _parseInt(firstQ['timeLimit'], 7);
     }
 
     // Reconnect snapshot
     if (widget.reconnectData != null) {
       final r = widget.reconnectData!;
-      _score = (r['score'] as num?)?.toInt() ?? 0;
+      _score = _parseInt(r['score'], 0);
       final cq = r['currentQuestion'];
       if (cq != null) {
         _currentQuestion = Map<String, dynamic>.from(cq as Map);
-        _timeLeft = (_currentQuestion!['timeLimit'] as num?)?.toInt() ?? 7;
+        _timeLeft = _parseInt(_currentQuestion!['timeLimit'], 7);
         _isLocked = r['answeredCurrent'] == true;
         if (_isLocked) _selectedAnswer = _currentQuestion!['answer'] as String?;
       }
@@ -201,11 +210,11 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
       setState(() {
-        _score = (d['score'] as num?)?.toInt() ?? 0;
+        _score = _parseInt(d['score'], 0);
         final cq = d['currentQuestion'];
         if (cq != null) {
           _currentQuestion = Map<String, dynamic>.from(cq as Map);
-          _timeLeft = (_currentQuestion!['timeLimit'] as num?)?.toInt() ?? 0;
+          _timeLeft = _parseInt(_currentQuestion!['timeLimit'], 0);
           _isLocked = d['answeredCurrent'] == true;
           _selectedAnswer = _isLocked ? _currentQuestion!['answer'] as String? : null;
         }
@@ -223,7 +232,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       final d = Map<String, dynamic>.from(data as Map);
       setState(() {
         _currentQuestion = d;
-        _timeLeft = (d['timeLimit'] as num?)?.toInt() ?? 7;
+        _timeLeft = _parseInt(d['timeLimit'], 7);
         _isLocked = false;
         _selectedAnswer = null;
       });
@@ -236,8 +245,8 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       final d = Map<String, dynamic>.from(data as Map);
       final isSuccess = d['success'] == true || d['isCorrect'] == true || d['correct'] == true;
       setState(() {
-        _score   = (d['totalPoints'] as num?)?.toInt() ?? _score;
-        _streak  = (d['currentStreak'] as num?)?.toInt() ?? 0;
+        _score   = _parseInt(d['totalPoints'], _score);
+        _streak  = _parseInt(d['currentStreak'], 0);
         _isLocked = true;
       });
       if (isSuccess) _triggerConfetti();
@@ -262,13 +271,42 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
     _socket!.on('gameOver', (data) {
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.spellLeaderboard, arguments: {
-        'roomCode': widget.roomCode,
-        'isAdmin': _isAdminOrSuper,
-        'leaderboard': data['leaderboard'],
-        'roomAverage': data['roomAverage'],
-        'questionStats': data['questionStats'],
-      });
+      try {
+        Map<String, dynamic> d = {};
+        if (data is Map) {
+          d = Map<String, dynamic>.from(data);
+        }
+        
+        final leaderboard = (d['leaderboard'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+            
+        final questionStats = (d['questionStats'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+            
+        double avg = 0.0;
+        if (d['roomAverage'] != null) {
+          avg = double.tryParse(d['roomAverage'].toString()) ?? 0.0;
+        }
+
+        Navigator.pushReplacementNamed(context, AppRoutes.spellLeaderboard, arguments: {
+          'roomCode': widget.roomCode,
+          'isAdmin': _isAdminOrSuper,
+          'leaderboard': leaderboard,
+          'roomAverage': avg,
+          'questionStats': questionStats,
+        });
+      } catch (e, st) {
+        debugPrint('Error in spell gameOver: $e\n$st');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Transition error: $e'))
+          );
+        }
+      }
     });
   }
 
@@ -277,15 +315,35 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
-      if (_isLocked || _timeLeft <= 0) { t.cancel(); return; }
-      setState(() => _timeLeft -= 1);
+      if (_timeLeft > 0) {
+        setState(() => _timeLeft -= 1);
+      } else {
+        t.cancel();
+        if (!_isLocked && !_isAdminOrSuper) {
+          _forceSubmitTimeUp();
+        }
+      }
+    });
+  }
+
+  void _forceSubmitTimeUp() {
+    setState(() {
+      _isLocked = true;
+      _selectedAnswer = null;
+    });
+    _socket?.emit('submitAnswer', {
+      'roomCode'   : widget.roomCode,
+      'userId'     : _userId,
+      'answerText' : 'TIME_UP',
+      'answer'     : 'TIME_UP',
+      'optionIndex': -1,
     });
   }
 
   // ── TTS ──────────────────────────────────────────────────
   Future<void> _playAudio(String? word) async {
     if (word == null || word.isEmpty) return;
-    /*
+    
     setState(() => _isSpeaking = true);
     try {
       await _tts.setLanguage('en-IN');
@@ -298,19 +356,22 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       debugPrint('TTS error: $e');
       if (mounted) setState(() => _isSpeaking = false);
     }
-    */
   }
 
   // ── Shoot Action ─────────────────────────────────────────
   void _handleShoot(String selectedSpelling) {
-    if (_isLocked || _isAdminOrSuper || _timeLeft <= 0) return;
+    if (_isAdminOrSuper) {
+      _showErrorDialog('Admin Blocked', 'Admins cannot participate in the Arena. Please log in as a Student to test game progression.');
+      return;
+    }
+    if (_isLocked) return;
 
     setState(() {
       _isLocked = true;
       _selectedAnswer = selectedSpelling;
     });
 
-    final options = (_currentQuestion?['options'] as List?)?.cast<String>() ?? [];
+    final options = (_currentQuestion?['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
 
     _socket?.emit('submitAnswer', {
       'roomCode'   : widget.roomCode,
@@ -402,6 +463,16 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       body: Stack(
         children: [
           const _SpellGameGrid(),
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.45,
+              child: Image.network(
+                'https://res.cloudinary.com/dvjefysfi/image/upload/v1781768384/Gemini_Generated_Image_j04eqmj04eqmj04e_fro2w3.png',
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const SizedBox(),
+              ),
+            ),
+          ),
           SafeArea(
             child: Column(
               children: [
@@ -599,7 +670,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
   // ── ARENA TAB ─────────────────────────────────────────────
   Widget _buildArenaTab() {
-    final options = (_currentQuestion?['options'] as List?)?.cast<String>() ?? [];
+    final options = (_currentQuestion?['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
     final serial = _currentQuestion?['serialNo'] ?? 1;
 
     return SingleChildScrollView(
@@ -607,88 +678,95 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         children: [
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
           // ── Audio Card ──
           Container(
             width: double.infinity,
-            constraints: const BoxConstraints(maxWidth: 380),
-            padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+            constraints: const BoxConstraints(maxWidth: 460),
+            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
             decoration: BoxDecoration(
               color: AppColors.bgCard,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: const Color(0xFF8B733D), width: 2),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 30, offset: const Offset(0, 15)),
+                BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 20)),
               ],
             ),
-            child: Column(
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  child: Text('TARGET 0$serial',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 3,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                GestureDetector(
-                  onTap: () => _playAudio(_currentQuestion?['word'] as String?),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: _isSpeaking ? 116 : 104,
-                    height: _isSpeaking ? 116 : 104,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFD4AF37), Color(0xFF996515)],
+                // Top accents
+                Positioned(top: -48, left: 20, child: Container(width: 24, height: 48, color: const Color(0xFF8B733D))),
+                Positioned(top: -48, right: 20, child: Container(width: 24, height: 48, color: const Color(0xFF8B733D))),
+                
+                Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
                       ),
-                      border: Border.all(color: AppColors.bgCard, width: 6),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 25, offset: const Offset(0, 10)),
-                      ],
+                      child: Text('TARGET 0$serial',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 4,
+                        ),
+                      ),
                     ),
-                    child: Icon(
-                      _isSpeaking ? Icons.volume_up_rounded : Icons.record_voice_over_rounded,
-                      color: Colors.white,
-                      size: 46,
+                    const SizedBox(height: 24),
+                    GestureDetector(
+                      onTap: () => _playAudio(_currentQuestion?['word'] as String?),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: _isSpeaking ? 130 : 120,
+                        height: _isSpeaking ? 130 : 120,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFD4AF37), Color(0xFF996515)],
+                            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                          ),
+                          border: Border.all(color: AppColors.bgCard, width: 8),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 30, offset: const Offset(0, 15)),
+                          ],
+                        ),
+                        child: Icon(
+                          _isSpeaking ? Icons.volume_up_rounded : Icons.record_voice_over_rounded,
+                          color: Colors.white,
+                          size: 56,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Text('LISTEN TO THE WINDS',
-                  style: TextStyle(
-                    color: Color(0xFF8B733D),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                    letterSpacing: 3,
-                  ),
+                    const SizedBox(height: 24),
+                    const Text('LISTEN TO THE WINDS',
+                      style: TextStyle(
+                        color: Color(0xFF8B733D),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        letterSpacing: 3,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: 40),
 
-          // ── Answer Targets ──
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-              childAspectRatio: 1.35,
-            ),
-            itemCount: options.length,
-            itemBuilder: (context, index) => _buildAnswerCard(options[index], index),
+          // ── Answer Targets (Balloons) ──
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 24,
+            runSpacing: 24,
+            children: options.asMap().entries.map((e) => _buildAnswerCard(e.value, e.key)).toList(),
           ),
+          const SizedBox(height: 20),
         ],
       ),
     );
@@ -696,46 +774,78 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
   Widget _buildAnswerCard(String option, int index) {
     final isSelected = _selectedAnswer == option;
-    final isDimmed = _isLocked && !isSelected;
-    final colors = [AppColors.neonPurple, AppColors.neonCyan, _spellGold, AppColors.neonPink];
-    final accent = colors[index % colors.length];
+    final isHidden = _isLocked && !isSelected;
+    final colors = [
+      [const Color(0xFFD4AF37), const Color(0xFF8B733D)], // Vintage (Gold)
+      [const Color(0xFF38BDF8), const Color(0xFF0284C7)], // Blue
+      [const Color(0xFFC084FC), const Color(0xFF9333EA)], // Multi (Purple)
+      [const Color(0xFFFB923C), const Color(0xFFEA580C)], // Fire (Orange)
+    ];
+    final accentGrad = colors[index % colors.length];
 
-    return AnimatedBuilder(
-      animation: _floatController,
-      builder: (_, child) {
-        final phase = index * (math.pi / 2);
-        final dy = math.sin((_floatController.value * 2 * math.pi) + phase) * 5;
-        return Transform.translate(offset: Offset(0, dy), child: child);
-      },
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 250),
-        opacity: isDimmed ? 0.35 : 1.0,
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 300),
+      opacity: isHidden ? 0.0 : 1.0,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 300),
+        scale: isHidden ? 0.0 : 1.0,
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: () => _handleShoot(option),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            margin: const EdgeInsets.only(bottom: 40), // Space for string
+            width: 140,
+            height: 190,
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: isSelected ? accent : accent.withOpacity(0.3),
-                width: isSelected ? 2 : 1,
+              gradient: LinearGradient(
+                colors: accentGrad,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              boxShadow: isSelected
-                  ? [BoxShadow(color: accent.withOpacity(0.35), blurRadius: 18)]
-                  : [],
+              borderRadius: const BorderRadius.all(Radius.elliptical(140, 190)),
+              boxShadow: [
+                BoxShadow(color: accentGrad[1].withOpacity(0.5), blurRadius: 25, offset: const Offset(0, 15)),
+              ],
             ),
-            child: Center(
-              child: Text(
-                option,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isSelected ? accent : Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 13,
-                  letterSpacing: 1.5,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                // Balloon knot
+                Positioned(
+                  bottom: -8,
+                  child: CustomPaint(
+                    size: const Size(16, 12),
+                    painter: _TrianglePainter(color: accentGrad[1]),
+                  ),
                 ),
-              ),
+                // String
+                Positioned(
+                  bottom: -48,
+                  child: Container(width: 1.5, height: 40, color: Colors.white.withOpacity(0.4)),
+                ),
+                // Text Box
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgCard.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF8B733D).withOpacity(0.7), width: 2),
+                    boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 15, offset: Offset(0, 8))],
+                  ),
+                  child: Text(
+                    option,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1013,6 +1123,28 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       ),
     );
   }
+}
+
+// ============================================================
+// Custom Painter for Balloon Knot
+// ============================================================
+class _TrianglePainter extends CustomPainter {
+  final Color color;
+  _TrianglePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color..style = PaintingStyle.fill;
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrianglePainter oldDelegate) => oldDelegate.color != color;
 }
 
 // ============================================================
