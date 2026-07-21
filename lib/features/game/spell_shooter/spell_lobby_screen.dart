@@ -139,6 +139,7 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
       'https://tambola-67o6.onrender.com',   // Same backend URL as ApiClient
       IO.OptionBuilder()
           .setTransports(['websocket'])
+          .enableForceNew()
           .disableAutoConnect()
           .build(),
     );

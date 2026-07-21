@@ -180,6 +180,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       'https://tambola-67o6.onrender.com',
       IO.OptionBuilder()
           .setTransports(['websocket'])
+          .enableForceNew()
           .disableAutoConnect()
           .build(),
     );
