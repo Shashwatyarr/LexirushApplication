@@ -241,11 +241,8 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
     _socket!.on('answerResult', (data) {
       if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      setState(() {
-        if (d['totalPoints'] != null) _score = _parseInt(d['totalPoints'], _score);
-        if (d['currentStreak'] != null) _streak = _parseInt(d['currentStreak'], _streak);
-      });
+      // Completely ignore backend score to avoid negative points overriding local correct answers.
+      // Final leaderboard will still depend on backend, but local UI will show optimistic score.
     });
 
     _socket!.on('liveLeaderboard', (data) {
@@ -332,7 +329,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
         setState(() => _timeLeft -= 1);
       } else {
         t.cancel();
-        if (!_isLocked && !_isAdminOrSuper) {
+        if (!_isLocked) {
           _forceSubmitTimeUp();
         }
       }
@@ -344,15 +341,18 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       _isLocked = true;
       _selectedAnswer = null;
     });
-    _socket?.emit('submitAnswer', {
-      'roomCode'   : widget.roomCode,
-      'userId'     : _userId,
-      'answerText' : 'TIME_UP',
-      'answer'     : 'TIME_UP',
-      'cellId'     : _currentQuestion?['_id'],
-      'optionIndex': -1,
-      'isCorrect'  : false,
-    });
+    
+    if (!_isAdminOrSuper) {
+      _socket?.emit('submitAnswer', {
+        'roomCode'   : widget.roomCode,
+        'userId'     : _userId,
+        'answerText' : 'TIME_UP',
+        'answer'     : 'TIME_UP',
+        'cellId'     : _currentQuestion?['_id'],
+        'optionIndex': -1,
+        'isCorrect'  : false,
+      });
+    }
     
     // Advance locally
     Future.delayed(const Duration(seconds: 2), () {
