@@ -45,6 +45,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   bool _showTerminatedModal   = false;
   bool _showRematchModal      = false;
   final TextEditingController _timeLimitCtrl = TextEditingController(text: '15');
+  String _userId = '';
 
   @override
   void initState() {
@@ -78,7 +79,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   void _connectSocket() async {
     final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('userId') ?? '';
+    if (!mounted) return;
+    setState(() {
+      _userId = prefs.getString('userId') ?? '';
+    });
     final name = prefs.getString('name') ?? '';
 
     _socket = IO.io(
@@ -90,7 +94,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     _socket!.onConnect((_) {
       _socket!.emit('joinRoom', {
         'roomCode': widget.roomCode,
-        'userId': userId,
+        'userId': _userId,
         'name': name,
         'isAdmin': widget.isAdmin,
       });
@@ -145,6 +149,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     final newTimeLimit = int.tryParse(timeLimitStr);
     _socket?.emit('initiateRematch', {
       'roomCode'    : widget.roomCode,
+      'adminId'     : _userId,
       'newTimeLimit': newTimeLimit,
     });
     setState(() => _showRematchModal = false);
