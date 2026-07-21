@@ -413,6 +413,11 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       setState(() {
         _score += 10; 
       });
+    } else {
+      // Optimistic local score deduction for wrong answers
+      setState(() {
+        _score -= 5;
+      });
     }
 
     // Advance locally
