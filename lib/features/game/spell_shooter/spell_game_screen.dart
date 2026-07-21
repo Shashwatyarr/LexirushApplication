@@ -242,18 +242,9 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     _socket!.on('answerResult', (data) {
       if (!mounted) return;
       final d = Map<String, dynamic>.from(data as Map);
-      final isSuccess = d['success'] == true || d['isCorrect'] == true || d['correct'] == true;
       setState(() {
-        _score   = _parseInt(d['totalPoints'], _score);
-        _streak  = _parseInt(d['currentStreak'], 0);
-        _isLocked = true;
-      });
-      if (isSuccess) _triggerConfetti();
-
-      // Move to next local question after 2 seconds
-      Future.delayed(const Duration(seconds: 2), () {
-        if (!mounted) return;
-        _moveToNextQuestion();
+        if (d['totalPoints'] != null) _score = _parseInt(d['totalPoints'], _score);
+        if (d['currentStreak'] != null) _streak = _parseInt(d['currentStreak'], _streak);
       });
     });
 
@@ -358,7 +349,15 @@ class _SpellGameScreenState extends State<SpellGameScreen>
       'userId'     : _userId,
       'answerText' : 'TIME_UP',
       'answer'     : 'TIME_UP',
+      'cellId'     : _currentQuestion?['_id'],
       'optionIndex': -1,
+      'isCorrect'  : false,
+    });
+    
+    // Advance locally
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      _moveToNextQuestion();
     });
   }
 
@@ -394,13 +393,32 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     });
 
     final options = (_currentQuestion?['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    
+    final correctAnswer = _currentQuestion?['answer']?.toString();
+    final isCorrect = correctAnswer != null && selectedSpelling.toLowerCase() == correctAnswer.toLowerCase();
 
     _socket?.emit('submitAnswer', {
       'roomCode'   : widget.roomCode,
       'userId'     : _userId,
       'answerText' : selectedSpelling,
       'answer'     : selectedSpelling,
+      'cellId'     : _currentQuestion?['_id'],
       'optionIndex': options.indexOf(selectedSpelling),
+      'isCorrect'  : isCorrect,
+    });
+
+    if (isCorrect) {
+      _triggerConfetti();
+      // Optimistic local score update in case backend fails to grade it correctly.
+      setState(() {
+        _score += 10; 
+      });
+    }
+
+    // Advance locally
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      _moveToNextQuestion();
     });
   }
 
