@@ -71,6 +71,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
   List<Map<String, dynamic>> _liveRanks = [];
   List<Map<String, dynamic>> _fullQuestions = [];
   Map<String, dynamic>? _currentQuestion;
+  int _currentQuestionIndex = 0;
   int _timeLeft = 0;
   int _score = 0;
   int _streak = 0;
@@ -140,10 +141,11 @@ class _SpellGameScreenState extends State<SpellGameScreen>
 
     // Initial questions passed from the lobby on gameStarted
     if (widget.fullQuestionData != null && widget.fullQuestionData!.isNotEmpty) {
-      _fullQuestions = widget.fullQuestionData!;
-      final firstQ = _fullQuestions.first;
-      _currentQuestion = firstQ;
-      _timeLeft = _parseInt(firstQ['timeLimit'], 7);
+      _fullQuestions = List<Map<String, dynamic>>.from(widget.fullQuestionData!);
+      _fullQuestions.shuffle();
+      _currentQuestionIndex = 0;
+      _currentQuestion = _fullQuestions[_currentQuestionIndex];
+      _timeLeft = _parseInt(_currentQuestion!['timeLimit'], 7);
     }
 
     // Reconnect snapshot
@@ -161,6 +163,11 @@ class _SpellGameScreenState extends State<SpellGameScreen>
         _fullQuestions = List<Map<String, dynamic>>.from(
           (r['fullQuestionData'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
         );
+        // Do not shuffle on reconnect, keep same order (or shuffle but it might disrupt them). We will just keep it.
+        if (_currentQuestion != null) {
+          _currentQuestionIndex = _fullQuestions.indexWhere((q) => q['_id'] == _currentQuestion!['_id']);
+          if (_currentQuestionIndex == -1) _currentQuestionIndex = 0;
+        }
       }
     }
 
@@ -229,16 +236,7 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     });
 
     _socket!.on('newQuestion', (data) {
-      if (!mounted) return;
-      final d = Map<String, dynamic>.from(data as Map);
-      setState(() {
-        _currentQuestion = d;
-        _timeLeft = _parseInt(d['timeLimit'], 7);
-        _isLocked = false;
-        _selectedAnswer = null;
-      });
-      _playAudio(d['word'] as String?);
-      _startTimer();
+      // Ignored for independent local questions.
     });
 
     _socket!.on('answerResult', (data) {
@@ -251,6 +249,12 @@ class _SpellGameScreenState extends State<SpellGameScreen>
         _isLocked = true;
       });
       if (isSuccess) _triggerConfetti();
+
+      // Move to next local question after 2 seconds
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!mounted) return;
+        _moveToNextQuestion();
+      });
     });
 
     _socket!.on('liveLeaderboard', (data) {
@@ -307,6 +311,23 @@ class _SpellGameScreenState extends State<SpellGameScreen>
             SnackBar(content: Text('Transition error: $e'))
           );
         }
+      }
+    });
+  }
+
+  void _moveToNextQuestion() {
+    setState(() {
+      if (_currentQuestionIndex < _fullQuestions.length - 1) {
+        _currentQuestionIndex++;
+        _currentQuestion = _fullQuestions[_currentQuestionIndex];
+        _timeLeft = _parseInt(_currentQuestion!['timeLimit'], 7);
+        _isLocked = false;
+        _selectedAnswer = null;
+        _playAudio(_currentQuestion!['word'] as String?);
+        _startTimer();
+      } else {
+        _currentQuestion = null;
+        _timer?.cancel();
       }
     });
   }
@@ -674,102 +695,105 @@ class _SpellGameScreenState extends State<SpellGameScreen>
     final options = (_currentQuestion?['options'] as List?)?.map((e) => e.toString()).toList() ?? [];
     final serial = _currentQuestion?['serialNo'] ?? 1;
 
-    return SingleChildScrollView(
+    return Column(
       key: const ValueKey('arena'),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: [
-          const SizedBox(height: 24),
-          // ── Audio Card ──
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(maxWidth: 460),
-            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
-            decoration: BoxDecoration(
-              color: AppColors.bgCard,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFF8B733D), width: 2),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 20)),
-              ],
-            ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                // Top accents
-                Positioned(top: -48, left: 20, child: Container(width: 24, height: 48, color: const Color(0xFF8B733D))),
-                Positioned(top: -48, right: 20, child: Container(width: 24, height: 48, color: const Color(0xFF8B733D))),
-                
-                Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.1)),
-                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
-                      ),
-                      child: Text('TARGET 0$serial',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 4,
-                        ),
-                      ),
+      children: [
+        const SizedBox(height: 16),
+        // ── Audio Card ──
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxWidth: 460),
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+          decoration: BoxDecoration(
+            color: AppColors.bgCard,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFF8B733D), width: 2),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 20)),
+            ],
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              // Top accents
+              Positioned(top: -36, left: 20, child: Container(width: 24, height: 36, color: const Color(0xFF8B733D))),
+              Positioned(top: -36, right: 20, child: Container(width: 24, height: 36, color: const Color(0xFF8B733D))),
+              
+              Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
                     ),
-                    const SizedBox(height: 24),
-                    GestureDetector(
-                      onTap: () => _playAudio(_currentQuestion?['word'] as String?),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: _isSpeaking ? 130 : 120,
-                        height: _isSpeaking ? 130 : 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFD4AF37), Color(0xFF996515)],
-                            begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                          ),
-                          border: Border.all(color: AppColors.bgCard, width: 8),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 30, offset: const Offset(0, 15)),
-                          ],
-                        ),
-                        child: Icon(
-                          _isSpeaking ? Icons.volume_up_rounded : Icons.record_voice_over_rounded,
-                          color: Colors.white,
-                          size: 56,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const Text('LISTEN TO THE WINDS',
+                    child: Text('TARGET 0$serial',
                       style: TextStyle(
-                        color: Color(0xFF8B733D),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                        letterSpacing: 3,
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 4,
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () => _playAudio(_currentQuestion?['word'] as String?),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: _isSpeaking ? 110 : 100,
+                      height: _isSpeaking ? 110 : 100,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFD4AF37), Color(0xFF996515)],
+                          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                        ),
+                        border: Border.all(color: AppColors.bgCard, width: 8),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 30, offset: const Offset(0, 15)),
+                        ],
+                      ),
+                      child: Icon(
+                        _isSpeaking ? Icons.volume_up_rounded : Icons.record_voice_over_rounded,
+                        color: Colors.white,
+                        size: 48,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('LISTEN TO THE WINDS',
+                    style: TextStyle(
+                      color: Color(0xFF8B733D),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // ── Answer Targets (Balloons) ──
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 16,
+                runSpacing: 16,
+                children: options.asMap().entries.map((e) => _buildAnswerCard(e.value, e.key)).toList(),
+              ),
             ),
           ),
-
-          const SizedBox(height: 40),
-
-          // ── Answer Targets (Balloons) ──
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 24,
-            runSpacing: 24,
-            children: options.asMap().entries.map((e) => _buildAnswerCard(e.value, e.key)).toList(),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
+        ),
+        const SizedBox(height: 10),
+      ],
     );
   }
 
