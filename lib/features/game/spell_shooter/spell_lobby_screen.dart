@@ -136,7 +136,7 @@ class _SpellLobbyScreenState extends State<SpellLobbyScreen>
   // ── Socket connection ────────────────────────────────────
   void _connectSocket(String userId, String name, String avatar, int level) {
     _socket = IO.io(
-      'https://tambola-67o6.onrender.com',   // Same backend URL as ApiClient
+      ApiClient.socketUrl,   // Fully synchronized connection via centralized config
       IO.OptionBuilder()
           .setTransports(['websocket', 'polling'])
           .enableForceNew()

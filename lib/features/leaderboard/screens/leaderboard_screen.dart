@@ -11,6 +11,7 @@ import '../../game/lexirush/game_screen.dart';
 import '../../game/spell_shooter/spell_game_screen.dart';
 import '../../../routes/app_routes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/network/api_client.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   final String roomCode;
@@ -86,8 +87,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     final name = prefs.getString('name') ?? '';
 
     _socket = IO.io(
-      'https://tambola-67o6.onrender.com',
-      IO.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      ApiClient.socketUrl,
+      IO.OptionBuilder().setTransports(['websocket', 'polling']).enableForceNew().disableAutoConnect().build(),
     );
     _socket!.connect();
 

@@ -19,6 +19,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_client.dart';
 import '../../leaderboard/screens/leaderboard_screen.dart';
 import '../../auth/screens/player_login_screen.dart';
 import '../../dashboard/students/student_dashboard.dart';
@@ -184,9 +185,9 @@ class _SpellGameScreenState extends State<SpellGameScreen>
   // ── Socket connection ────────────────────────────────────
   void _connectSocket() {
     _socket = IO.io(
-      'https://tambola-67o6.onrender.com',
+      ApiClient.socketUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableForceNew()
           .disableAutoConnect()
           .build(),

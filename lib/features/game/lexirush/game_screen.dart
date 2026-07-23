@@ -12,6 +12,7 @@ import 'package:confetti/confetti.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_client.dart';
 import '../../../routes/app_routes.dart';
 
 // ── Data model for a grid cell ───────────────────────────────
@@ -185,9 +186,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ── Socket setup ─────────────────────────────────────────
   void _connectSocket() {
     _socket = IO.io(
-      'https://tambola-67o6.onrender.com',
+      ApiClient.socketUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableForceNew()
           .disableAutoConnect()
           .build(),

@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_client.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -22,7 +23,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
     with TickerProviderStateMixin {
 
   late AnimationController _particleCtrl;
-  static const String _baseUrl = 'https://tambola-67o6.onrender.com';
+  static const String _baseUrl = ApiClient.serverHost;
 
   bool _isLoading = true;
   bool _isSuper   = false;

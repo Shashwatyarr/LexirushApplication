@@ -168,8 +168,11 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   void _connectSocket() {
     _socket = IO.io(
-      'https://tambola-67o6.onrender.com',
-      IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
+      ApiClient.socketUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .disableAutoConnect()
+          .build(),
     );
     _socket!.connect();
 

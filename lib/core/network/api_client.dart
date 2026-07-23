@@ -3,9 +3,11 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
-  // TODO: Replace with your actual backend base URL (e.g. from flutter_dotenv or config)
-  static const String baseUrl = 'https://tambola-67o6.onrender.com/api';
-  
+  // Centralized backend configuration for fully synced web and mobile experience
+  // Replace with localhost:5000 (e.g. 'http://192.168.x.x:5000') for local testing
+  static const String serverHost = 'https://tambola-67o6.onrender.com';
+  static const String socketUrl = serverHost;
+  static const String baseUrl = '$serverHost/api';
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('auth_token');
