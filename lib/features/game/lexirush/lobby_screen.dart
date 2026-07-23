@@ -135,7 +135,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     _socket = IO.io(
       'https://tambola-67o6.onrender.com',   // Same backend URL as ApiClient
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableForceNew()
           .disableAutoConnect()
           .build(),
